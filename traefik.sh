@@ -134,18 +134,19 @@ ensure_data_dirs() {
 
     print_info "Preparing data directory: $data_dir"
 
-    mkdir -p "$data_dir"/traefik/{acme,logs}
+    mkdir -p "$data_dir"/traefik/{letsencrypt,logs}
     mkdir -p "$data_dir"/grafana
     mkdir -p "$data_dir"/prometheus
     mkdir -p "$data_dir"/loki
     mkdir -p "$data_dir"/promtail
     mkdir -p "$data_dir"/alertmanager
 
-    # ACME storage MUST be 600 or Traefik refuses to use it.
-    if [[ -f "$data_dir/traefik/acme/letsencrypt.json" ]]; then
-        chmod 600 "$data_dir/traefik/acme/letsencrypt.json"
+    # ACME storage files MUST be 600 or Traefik refuses to use them.
+    # Tighten any existing files (renewals replace them in-place).
+    chmod 700 "$data_dir/traefik/letsencrypt"
+    if compgen -G "$data_dir/traefik/letsencrypt/*.json" > /dev/null; then
+        chmod 600 "$data_dir/traefik/letsencrypt/"*.json
     fi
-    chmod 700 "$data_dir/traefik/acme"
 
     # Grafana runs as 472:472, Loki as 10001:10001, Prometheus as 65534:65534
     if [[ $EUID -eq 0 ]]; then

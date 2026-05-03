@@ -16,9 +16,9 @@ config/certs/static/*.p12
 config/certs/static/*.pfx
 
 # Let's Encrypt ACME storage (contains issued certificates + account key)
-config/certs/acme/*.json
-config/certs/acme/account.json
-config/certs/acme/letsencrypt.json
+config/certs/letsencrypt/*.json
+config/certs/letsencrypt/account.json
+config/certs/letsencrypt/letsencrypt.json
 
 # Runtime data / volumes (when bind-mounted under ./data)
 data/
@@ -46,4 +46,4 @@ logs/
 # Keep example certs and provisioning structure
 !config/certs/static/.gitkeep
 !config/certs/static/README.md
-!config/certs/acme/.gitkeep
+!config/certs/letsencrypt/.gitkeep

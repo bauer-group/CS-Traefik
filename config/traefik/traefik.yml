@@ -156,74 +156,105 @@ providers:
 # -----------------------------------------------------------------------------
 # Certificate resolvers
 # -----------------------------------------------------------------------------
-# Three Let's Encrypt resolvers are pre-wired. App stacks pick one via
-# label:  traefik.http.routers.<name>.tls.certresolver=letsencrypt
+# Four Let's Encrypt resolvers are pre-wired. App stacks pick one per-router
+# with a label:  traefik.http.routers.<name>.tls.certresolver=letsencrypt
 #
-#   letsencrypt          -> production ACME with TLS-ALPN-01 challenge
-#                           (port 443; matches what the legacy EDGEPROXY
-#                           stack used -- DEFAULT, do not rename).
+# Priority order (preferred -> fallback) when picking a resolver for a host:
 #
-#   letsencrypt-http     -> production ACME with HTTP-01 challenge
-#                           (port 80; useful when 443 is fronted by an
-#                           upstream that terminates TLS).
+#   1.  letsencrypt          -- HTTP-01    (port 80)   -- DEFAULT, primary
+#   2.  letsencrypt-tls      -- TLS-ALPN-01 (port 443) -- fallback when
+#                                                          port 80 is fronted
+#   3.  letsencrypt-dns      -- DNS-01      (any port) -- wildcards / hosts
+#                                                          unreachable from
+#                                                          public internet
+#   X.  letsencrypt-staging  -- HTTP-01    (port 80)   -- testing endpoint
 #
-#   letsencrypt-staging  -> ACME staging endpoint (testing, no rate-limit
-#                           pain). Switch to this during initial roll-out.
-#
-# DNS-01 (wildcards / firewalled hosts) is documented as a commented
-# template at the bottom -- intentionally NOT activated, since we have
-# no DNS-provider API integration on this stack today. When that comes,
-# uncomment + add provider env vars to .env.
+# Why HTTP-01 first?
+#   * RFC 8555 marks HTTP-01 as MUST-implement. Universal compatibility.
+#   * Works through CDNs / WAFs that pass through HTTP requests but might
+#     not expose the underlying TLS handshake.
+#   * Lowest setup friction -- no TLS state machine, just a URL fetch.
+# Why TLS-ALPN-01 second?
+#   * Fallback when port 80 is unreachable / hijacked / fronted by an
+#     upstream proxy that terminates HTTP. Uses the same 443 listener.
+# Why DNS-01 last?
+#   * Slowest (DNS propagation + checks). Use only when needed for
+#     wildcards (*.bauer-group.com) or fully-firewalled hosts.
 certificatesResolvers:
 
+  # ---- 1. HTTP-01 (DEFAULT) ---------------------------------------------------
+  # Legacy EDGEPROXY app stacks reference `letsencrypt` -- the resolver
+  # name is unchanged for drop-in compat. Only the underlying challenge
+  # type switched from TLS-ALPN-01 to HTTP-01 per the documented priority
+  # order. Existing certs in storage continue to work; renewals go through
+  # HTTP-01 from now on.
   letsencrypt:
     acme:
       email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
       caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
-      storage: /etc/traefik/certs/acme/letsencrypt.json
-      keyType: EC256
-      tlsChallenge: {}
-
-  letsencrypt-http:
-    acme:
-      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
-      caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
-      storage: /etc/traefik/certs/acme/letsencrypt-http.json
+      storage: /etc/traefik/certs/letsencrypt/letsencrypt.json
       keyType: EC256
       httpChallenge:
         entryPoint: web
 
-  letsencrypt-staging:
+  # ---- 2. TLS-ALPN-01 (fallback) ---------------------------------------------
+  letsencrypt-tls:
     acme:
       email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
-      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
-      storage: /etc/traefik/certs/acme/letsencrypt-staging.json
+      caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
+      storage: /etc/traefik/certs/letsencrypt/letsencrypt-tls.json
       keyType: EC256
       tlsChallenge: {}
 
-  # ---- DNS-01 example (PREPARED, not active) ---------------------------------
-  # We currently have no DNS-provider API integration. To enable wildcards
-  # for *.bauer-group.com (or any domain), uncomment the block below,
-  # pick a provider from
-  #   https://doc.traefik.io/traefik/https/acme/#providers
-  # and add the provider-specific env vars to .env (e.g. CF_DNS_API_TOKEN
-  # for Cloudflare). Then point a router at it via:
+  # ---- 3. DNS-01 (wildcards / firewalled hosts) ------------------------------
+  # ACTIVE but inert until LETSENCRYPT_DNS_PROVIDER is set in .env. The
+  # provider plugin is selected by the env var; credentials for ALL common
+  # providers are wired through docker-compose.yml so no Compose edits are
+  # needed when switching providers.
+  #
+  # Usage: in your app router add:
   #   traefik.http.routers.foo.tls.certresolver=letsencrypt-dns
   #   traefik.http.routers.foo.tls.domains[0].main=bauer-group.com
   #   traefik.http.routers.foo.tls.domains[0].sans=*.bauer-group.com
   #
-  # letsencrypt-dns:
-  #   acme:
-  #     email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
-  #     caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
-  #     storage: /etc/traefik/certs/acme/letsencrypt-dns.json
-  #     keyType: EC256
-  #     dnsChallenge:
-  #       provider: cloudflare        # change to your DNS provider
-  #       resolvers:
-  #         - "1.1.1.1:53"
-  #         - "8.8.8.8:53"
-  #       delayBeforeCheck: 10s
+  # Reference: https://doc.traefik.io/traefik/https/acme/#providers
+  letsencrypt-dns:
+    acme:
+      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
+      storage: /etc/traefik/certs/letsencrypt/letsencrypt-dns.json
+      keyType: EC256
+      dnsChallenge:
+        # The provider is picked at runtime from .env. If empty, this
+        # resolver is effectively disabled -- routers that reference it
+        # will simply not be able to acquire certs (Traefik logs a warning).
+        provider: "${LETSENCRYPT_DNS_PROVIDER:-cloudflare}"
+        # Recursive DNS resolvers used to verify that the _acme-challenge
+        # TXT record has propagated. Cloudflare + Google = fast + neutral.
+        resolvers:
+          - "1.1.1.1:53"
+          - "8.8.8.8:53"
+        # Wait this long after creating the TXT record before asking the
+        # CA to validate. Increase if your provider has slow propagation
+        # (some legacy providers need 30-60s).
+        delayBeforeCheck: 10s
+        # IPs Traefik will NOT use for the propagation check (defaults
+        # are sane; override only if your DNS provider serves the TXT
+        # record from a non-public IP space).
+        # disablePropagationCheck: false
+
+  # ---- X. Staging (testing) --------------------------------------------------
+  # Uses HTTP-01 to mirror the production default. Switch any router to
+  # this during initial rollouts to avoid the production rate limit
+  # (5 duplicate certs/week, 50 certs/account/week).
+  letsencrypt-staging:
+    acme:
+      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+      storage: /etc/traefik/certs/letsencrypt/letsencrypt-staging.json
+      keyType: EC256
+      httpChallenge:
+        entryPoint: web
 
 
 # -----------------------------------------------------------------------------

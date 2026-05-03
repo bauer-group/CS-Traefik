@@ -57,11 +57,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   1.2 + AEAD) options available for sensitive routes via per-router
   `tls.options` label.
 
-* **Three Let's Encrypt resolvers** pre-wired (TLS-ALPN-01, HTTP-01,
-  staging) selectable per-router via labels. **DNS-01 wildcard
-  resolver template documented but inactive** in `traefik.yml` — no
-  DNS-provider API integration yet; uncomment and add credentials when
-  that's set up.
+* **Four Let's Encrypt resolvers** pre-wired with the BAUER GROUP
+  challenge priority **HTTP-01 → TLS-ALPN-01 → DNS-01**:
+  * `letsencrypt` — HTTP-01 (DEFAULT, universal, RFC 8555 MUST).
+  * `letsencrypt-tls` — TLS-ALPN-01 (fallback when port 80 is fronted).
+  * `letsencrypt-dns` — DNS-01 (wildcards, firewalled hosts), provider
+    parameterised at runtime via `LETSENCRYPT_DNS_PROVIDER` in `.env`.
+  * `letsencrypt-staging` — HTTP-01 against the ACME staging endpoint.
+
+* **DNS-01 active out of the box** with credentials for every common
+  provider pre-wired through `docker-compose.yml`: Cloudflare, AWS
+  Route 53, Google Cloud DNS, Azure DNS, Hetzner, IONOS, Netcup, INWX,
+  Hosting.de, DigitalOcean, Linode, Vultr, OVH, Gandi v5, DNSimple,
+  Namecheap, GoDaddy, DNSPod / Tencent Cloud, Scaleway, DuckDNS,
+  Designate (OpenStack), Scaleway, ACME-DNS, RFC 2136, and the generic
+  `exec` hook for custom shell scripts. Providers not in the pre-wired
+  set work too — just add their env vars to `.env`.
+
+* **ACME storage directory renamed** `config/certs/acme/` →
+  `config/certs/letsencrypt/` and similarly under `${DATA_DIRECTORY}`.
+  Clearer name, single source of truth (the storage holds a
+  Let's-Encrypt-specific account + cert state, not a generic ACME-X
+  payload).
 
 * **Bring-your-own certificates** (corporate CA, wildcards) supported
   side-by-side via `config/certs/static/` + `dynamic/tls.yml`.

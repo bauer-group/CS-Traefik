@@ -273,36 +273,80 @@ traefik.http.routers.api-https.tls.options=intermediate@file       # TLS 1.2 min
 
 ### Let's Encrypt
 
-Three resolvers are pre-configured. Pick a resolver per router via
+Four resolvers are pre-configured. Pick a resolver per router via
 `traefik.http.routers.X.tls.certresolver=...`:
 
-- **`letsencrypt`** — production ACME with TLS-ALPN-01 (DEFAULT, like
-  legacy).
-- **`letsencrypt-http`** — production ACME with HTTP-01 (port 80
-  required).
-- **`letsencrypt-staging`** — ACME staging endpoint for testing.
+| Resolver               | Challenge   | When to use                                     |
+| ---------------------- | ----------- | ----------------------------------------------- |
+| `letsencrypt`          | HTTP-01     | **DEFAULT.** Universal compatibility, RFC-MUST. |
+| `letsencrypt-tls`      | TLS-ALPN-01 | Fallback when port 80 is fronted/blocked.       |
+| `letsencrypt-dns`      | DNS-01      | Wildcards, hosts unreachable from public net.   |
+| `letsencrypt-staging`  | HTTP-01     | Initial roll-out testing, no rate-limit pain.   |
+
+Priority order: **HTTP-01 → TLS-ALPN-01 → DNS-01**. HTTP-01 is the
+primary because it's the most universal challenge (RFC 8555 marks it
+MUST-implement), simplest setup, and works through CDNs/WAFs that
+might not expose underlying TLS handshakes. TLS-ALPN-01 is the
+fallback for hosts where port 80 isn't usable. DNS-01 is last because
+it's the slowest (DNS propagation overhead) — use only when needed.
 
 Both HTTP-01 (port 80) and TLS-ALPN-01 (port 443) challenges are
-fully supported.
+fully supported and reuse the existing entrypoints — no extra config.
 
 ### Wildcards / DNS-01
 
-The DNS-01 resolver template is **prepared but inactive** —
-`config/traefik/traefik.yml` has the section commented. We currently
-have no DNS-provider API integration on this stack. To activate later:
+The DNS-01 resolver is **active and parameterised** — pick a provider
+in `.env`:
 
-1. Uncomment the `letsencrypt-dns` block in `traefik.yml`.
-2. Choose a provider from
-   [Traefik's DNS provider list](https://doc.traefik.io/traefik/https/acme/#providers).
-3. Add provider credentials to `.env` (e.g. `CF_DNS_API_TOKEN` for
-   Cloudflare).
-4. Reference from a router:
+```env
+LETSENCRYPT_DNS_PROVIDER=cloudflare         # any provider Traefik supports
+CF_DNS_API_TOKEN=...                         # provider-specific credentials
+```
 
-   ```yaml
-   traefik.http.routers.foo.tls.certresolver=letsencrypt-dns
-   traefik.http.routers.foo.tls.domains[0].main=bauer-group.com
-   traefik.http.routers.foo.tls.domains[0].sans=*.bauer-group.com
-   ```
+Then reference from any router:
+
+```yaml
+traefik.http.routers.foo.tls.certresolver=letsencrypt-dns
+traefik.http.routers.foo.tls.domains[0].main=bauer-group.com
+traefik.http.routers.foo.tls.domains[0].sans=*.bauer-group.com
+```
+
+**Pre-wired provider credentials** in `docker-compose.yml` (you only
+need to populate the ones for your chosen provider in `.env`):
+
+| Provider          | Key for `LETSENCRYPT_DNS_PROVIDER` |
+| ----------------- | ---------------------------------- |
+| Cloudflare        | `cloudflare`                       |
+| AWS Route 53      | `route53`                          |
+| Google Cloud DNS  | `gcloud`                           |
+| Azure DNS         | `azuredns`                         |
+| Hetzner DNS       | `hetzner`                          |
+| IONOS / 1&1       | `ionos`                            |
+| Netcup (DE)       | `netcup`                           |
+| INWX (DE)         | `inwx`                             |
+| Hosting.de        | `hostingde`                        |
+| DigitalOcean      | `digitalocean`                     |
+| Linode            | `linode`                           |
+| Vultr             | `vultr`                            |
+| OVH               | `ovh`                              |
+| Gandi v5          | `gandiv5`                          |
+| DNSimple          | `dnsimple`                         |
+| Namecheap         | `namecheap`                        |
+| GoDaddy           | `godaddy`                          |
+| DNSPod / Tencent  | `dnspod` / `tencentcloud`          |
+| Scaleway          | `scaleway`                         |
+| DuckDNS           | `duckdns`                          |
+| Designate (OS)    | `designate`                        |
+| ACME-DNS (alias)  | `acme-dns`                         |
+| RFC 2136 (BIND)   | `rfc2136`                          |
+| Generic shell hook| `exec`                             |
+
+The full list of [100+ providers Traefik
+supports](https://doc.traefik.io/traefik/https/acme/#providers) all
+work — providers not in the table above just need their env vars added
+to `.env` (Compose passes the whole `.env` through).
+
+`.env.example` documents the env vars for each pre-wired provider.
 
 ### Manual / corporate-CA certificates
 
@@ -508,7 +552,7 @@ sudo ./traefik.sh logs traefik       # follow Traefik
 sudo docker exec edgeproxy-traefik traefik version
 
 # ACME debug
-sudo cat ${DATA_DIRECTORY}/traefik/acme/letsencrypt.json | jq .
+sudo cat ${DATA_DIRECTORY}/traefik/letsencrypt/letsencrypt.json | jq .
 ```
 
 If Let's Encrypt rate-limits you during testing, switch the resolver to
