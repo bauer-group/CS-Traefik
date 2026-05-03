@@ -94,11 +94,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: "${PROMETHEUS_CPU_LIMIT:-2}"
-          memory: ${PROMETHEUS_MEMORY_LIMIT:-2g}
+    # NO `deploy.resources.limits`. A throttled Prometheus drops scrape
+    # windows -> blind spots in the metrics. A throttled / OOM'd
+    # Prometheus is worse than no Prometheus.
     logging:
       driver: json-file
       options:
@@ -187,11 +185,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          cpus: "${GRAFANA_CPU_LIMIT:-1}"
-          memory: ${GRAFANA_MEMORY_LIMIT:-512m}
+    # NO `deploy.resources.limits`. Grafana under load (large dashboard
+    # + many concurrent viewers) wants headroom; capping it just makes
+    # dashboards slow.
     logging:
       driver: json-file
       options:
@@ -232,11 +228,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
-    deploy:
-      resources:
-        limits:
-          cpus: "${LOKI_CPU_LIMIT:-1}"
-          memory: ${LOKI_MEMORY_LIMIT:-1g}
+    # NO `deploy.resources.limits`. CRITICAL for the log path: a
+    # throttled Loki backpressures Promtail -> Promtail buffers fill
+    # -> Promtail stops reading from /var/lib/docker/containers ->
+    # Docker json-file driver buffers fill -> writes to stdout block
+    # in EVERY container on the host -- including Traefik. Domino.
+    # Let Loki use whatever the host can give it.
     logging:
       driver: json-file
       options:

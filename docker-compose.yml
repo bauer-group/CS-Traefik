@@ -265,11 +265,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    deploy:
-      resources:
-        limits:
-          cpus: "${TRAEFIK_CPU_LIMIT:-2}"
-          memory: ${TRAEFIK_MEMORY_LIMIT:-512m}
+    # NO `deploy.resources.limits` on Traefik. The edge proxy is the
+    # single hot path for ALL ingress traffic -- artificially capping
+    # its CPU triggers Linux CFS throttling under spikes (100ms freezes
+    # that look like 502s / timeouts to clients) even when the host has
+    # idle headroom. If you specifically need to cap Traefik (multi-
+    # tenant Docker host), copy docker-compose.limits.yml.example,
+    # rename to docker-compose.limits.yml, and pass it as an extra `-f`.
     logging:
       driver: json-file
       options:

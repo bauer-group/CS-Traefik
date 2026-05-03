@@ -506,6 +506,40 @@ Migration steps:
 
 ---
 
+## Resource limits
+
+**No `deploy.resources.limits` are set on any service by default.**
+This is intentional, not an oversight.
+
+- **Traefik** is the single hot path for every ingress request. Capping
+  its CPU triggers Linux CFS throttling — 100 ms freezes that look like
+  502s / timeouts to clients even when the host has idle headroom.
+- **Loki + Promtail** throttling backpressures the Docker json-file log
+  driver. When Loki can't keep up, Promtail stops reading container
+  stdout, then writes from EVERY container block — including Traefik.
+- **Prometheus** throttling drops scrape windows, leaving metric blind
+  spots exactly when you need them most.
+
+If you genuinely need caps (multi-tenant host, hard regulatory ceiling,
+known-bad workload), add them via a `docker-compose.override.yml` at
+the repo root — Compose merges it automatically with no extra flags:
+
+```yaml
+# docker-compose.override.yml
+services:
+  traefik:
+    deploy:
+      resources:
+        limits:
+          cpus:   "4"
+          memory: 2g
+```
+
+This way the limits are visibly your decision, not a hidden default
+working against you.
+
+---
+
 ## Security defaults
 
 - **Admin surfaces**: localhost-only by default, BasicAuth + IP

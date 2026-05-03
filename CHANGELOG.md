@@ -98,6 +98,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 * **Hardened containers**: drop `ALL` capabilities, `no-new-privileges`,
   non-root users (Prometheus 65534, Grafana 472, Loki 10001),
-  read-only Docker socket on Traefik. Resource limits + healthchecks
-  on every service. Structured JSON logs, container-level rotation
-  (50m × 5).
+  read-only Docker socket on Traefik. Healthchecks on every service.
+  Structured JSON logs, container-level rotation (50m × 5).
+
+* **NO `deploy.resources.limits` on the shipped services.** Capping the
+  edge proxy triggers Linux CFS throttling under load (100ms freezes
+  manifesting as 502s / timeouts). Capping the log pipeline (Loki /
+  Promtail) backpressures the Docker json-file driver, which blocks
+  stdout writes in every container that ships logs -- including
+  Traefik. Caps belong in a per-host `docker-compose.override.yml`
+  when explicitly needed (multi-tenant Docker host, regulatory limit),
+  not as a hidden default that bottlenecks everyone.
