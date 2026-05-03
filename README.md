@@ -4,31 +4,52 @@
 > Today, Tomorrow, Together — Building Better Software Together
 
 A drop-in successor to the legacy `EDGEPROXY` Traefik v2 stack. Same network
-contract (`EDGEPROXY` external bridge), but on top of Traefik v3 with a modern
-observability stack, profile-driven feature toggles, and a single management
-script that mirrors the `runner.sh` / `coolify.sh` UX from sibling repos.
+contract, same entrypoint names, same resolver names — modern internals,
+better defaults, no surprise behaviour for existing app stacks.
 
 ---
 
 ## Highlights
 
-- **Traefik v3.6** (current) with HTTP/3 (QUIC), OpenTelemetry-ready, structured JSON logs.
-- **Hardened admin access**: dedicated HTTPS subdomain, BasicAuth (bcrypt) +
-  IP whitelist + strict rate limit + modern security headers.
+- **Traefik v3.6** (current) with HTTP/3 (QUIC), structured JSON logs.
+- **Drop-in compatible** with the legacy EDGEPROXY stack:
+  - Public network: `EDGEPROXY` (overridable, IPv4 + IPv6).
+  - Entrypoints: `web` (80) and `web-secure` (443) — *with hyphen*, like
+    legacy. Existing app `entrypoints=web-secure` labels keep working.
+  - Default cert resolver: `letsencrypt` (TLS-ALPN-01).
+  - HTTP→HTTPS redirect at the entry-point level.
+- **Hardened admin access**: dedicated `api` entrypoint on
+  `127.0.0.1:9090` by default — Traefik dashboard, Grafana, Prometheus,
+  and Alertmanager are reachable via path-prefix routing
+  (`/dashboard`, `/grafana`, `/prometheus`, `/alertmanager`) with
+  BasicAuth + IP whitelist always enforced. **Not on port 443**, low
+  attack surface.
+- **Three access modes** for admin UIs: localhost-only (default),
+  LAN-accessible, or dedicated public FQDN over HTTPS.
 - **Compose Profiles** — opt in to what you actually need:
-  - `core` (default) — Traefik only.
+  - **`core` (default)** — Traefik only.
   - `monitoring` — Prometheus, Grafana, Loki, Promtail, Alertmanager,
     node-exporter, cAdvisor with pre-provisioned dashboards.
   - `auto-update` — Watchtower with rolling restart, weekly cron.
-- **Let's Encrypt + manual certificates** side-by-side (TLS-ALPN, HTTP-01,
-  DNS-01 for wildcards). Bring your own corporate-CA wildcard? Drop it in
+- **No imposed middleware policies** on app traffic. Only the
+  `X-Solution-Provider: BAUER GROUP` header is added by default. HSTS,
+  Permissions-Policy, frame-deny, rate-limits etc. ship as **atomic
+  opt-in middlewares** apps choose individually.
+- **TLS compatibility-first**: default minVersion = **TLS 1.1**, broad
+  cipher list including legacy CBC and RSA suites. Old smartphones,
+  feature phones, and KaiOS clients keep working. `modern@file` (TLS 1.3
+  only) and `intermediate@file` available for sensitive routes.
+- **Three Let's Encrypt resolvers** pre-wired (TLS-ALPN-01, HTTP-01,
+  staging). DNS-01 wildcard template **prepared but inactive** — add
+  provider credentials when you're ready.
+- **Bring-your-own certificates** (corporate CA, wildcards). Drop into
   `config/certs/static/` and reference from `dynamic/tls.yml`.
-- **EDGEPROXY** as the default public network (overridable via `.env`),
-  with a separate `EDGEPROXY-internal` network for monitoring traffic so
-  metrics/logs never traverse the public bridge.
-- **Single-shot install**: one curl command bootstraps the whole stack.
-- **Atomic updates**: `traefik.sh deploy` for git, `traefik.sh update` for
-  images. They are intentionally separate so you can bisect regressions.
+- **Custom YAML config** for the 1% of routes that aren't in Docker
+  labels (VMs, on-prem, external SaaS). Drop `*.yml` into
+  `config/traefik/dynamic/` — Traefik picks them up live.
+- **Single-shot install**: one `curl|bash` clones, configures, starts.
+- **Atomic updates**: `traefik.sh deploy` for git, `traefik.sh update`
+  for images. Separate so you can bisect regressions.
 
 ---
 
@@ -44,8 +65,7 @@ This will:
 
 1. Install missing prerequisites (git, curl, openssl, Docker if absent).
 2. Clone the repo to `/opt/edgeproxy`.
-3. Run the interactive `.env` wizard (FQDN for the dashboard, Let's Encrypt
-   email, profile selection, generated bcrypt admin credentials).
+3. Run the interactive setup wizard.
 4. Bring the stack up with `traefik.sh start`.
 
 Non-interactive (cloud-init / CI):
@@ -59,13 +79,13 @@ curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install
 ```bash
 git clone https://github.com/bauer-group/CS-Traefik.git /opt/edgeproxy
 cd /opt/edgeproxy
-sudo ./install.sh                # detects the local checkout, runs the wizard
+sudo ./install.sh                # detects local checkout, runs the wizard
 sudo ./traefik.sh start
 ```
 
-`install.sh` is mode-aware: piped in from `curl`, it bootstraps from
-scratch (clone + setup); invoked from a checkout, it just runs the wizard.
-Same script, same flags, both flows.
+`install.sh` is mode-aware: piped from `curl`, it bootstraps from
+scratch; invoked from a checkout, it just runs the wizard. Same script,
+same flags, both flows.
 
 ---
 
@@ -101,7 +121,7 @@ sudo ./traefik.sh help          # full reference
 Profiles are activated in `.env`:
 
 ```env
-COMPOSE_PROFILES=                       # core only (Traefik)
+COMPOSE_PROFILES=                       # core only (DEFAULT)
 COMPOSE_PROFILES=monitoring             # core + observability
 COMPOSE_PROFILES=monitoring,auto-update # everything
 ```
@@ -112,35 +132,65 @@ multi-file invocations.
 
 | Profile        | What it adds                                                  |
 | -------------- | ------------------------------------------------------------- |
-| `core`         | Traefik only (default).                                       |
+| **`core`**     | Traefik only (DEFAULT).                                       |
 | `monitoring`   | Prometheus + Grafana + Loki + Promtail + Alertmanager +       |
 |                | node-exporter + cAdvisor + pre-provisioned dashboards.        |
 | `auto-update`  | Watchtower (rolling restart, weekly cron, label-opt-in).      |
 
 ---
 
-## Endpoints
+## Admin access
 
-After `start`, services are exposed on:
+The Traefik dashboard, Grafana, Prometheus, and Alertmanager all live
+behind the dedicated `api` entrypoint at path prefixes — never on the
+public 443 port unless you explicitly configure it.
 
-| Service         | URL pattern                              | Auth                          |
-| --------------- | ---------------------------------------- | ----------------------------- |
-| Apps (yours)    | `https://<your-app>.<your-domain>`       | per-app                       |
-| Traefik         | `https://${DASHBOARD_HOST}`              | IP whitelist + BasicAuth      |
-| Grafana¹        | `https://${GRAFANA_HOST}`                | IP whitelist + Grafana login  |
-| Prometheus¹     | `https://${PROMETHEUS_HOST}`             | IP whitelist + BasicAuth      |
-| Alertmanager¹   | `https://${ALERTMANAGER_HOST}`           | IP whitelist + BasicAuth      |
+### Mode 1 — Localhost only (default, most secure)
 
-¹ Only when the `monitoring` profile is active.
+`API_BIND=127.0.0.1` (default). The api entrypoint is reachable only
+from the Docker host's loopback. Connect via SSH-tunnel:
 
-All admin surfaces are HTTPS-only, behind the same BasicAuth + IP whitelist
-chain, with strict rate limiting (10 req/s) and modern security headers.
+```bash
+ssh -L 9090:127.0.0.1:9090 user@server
+
+# then in your browser:
+open http://127.0.0.1:9090/dashboard/
+                          /grafana/
+                          /prometheus/
+                          /alertmanager/
+```
+
+BasicAuth (`API_USERS`) + IP whitelist (`API_WHITELIST`) are always
+enforced — defence-in-depth even on the loopback.
+
+### Mode 2 — LAN accessible
+
+`API_BIND=0.0.0.0`. Reachable on `http://<host-ip>:9090/...` from any
+network the Docker host is on. BasicAuth + IP whitelist still enforced.
+No TLS on this entrypoint by default — fine for trusted LANs / VPN.
+
+### Mode 3 — Public FQDN over HTTPS
+
+Set `API_HOST=admin.bauer-group.com` (a hostname *that hosts no app*).
+A second router activates on `web-secure` with Let's Encrypt TLS,
+BasicAuth, and IP whitelist:
+
+```text
+https://admin.bauer-group.com/dashboard/
+                             /grafana/
+                             /prometheus/
+                             /alertmanager/
+```
+
+You can combine: localhost (mode 1) is always available; mode 3
+*adds* the public FQDN on top.
 
 ---
 
 ## Connecting your service stacks
 
-Service stacks join the `EDGEPROXY` network as **external**:
+Service stacks join the `EDGEPROXY` network as **external**. Identical
+labelling to the legacy stack:
 
 ```yaml
 # any-service/docker-compose.yml
@@ -148,71 +198,144 @@ services:
   myapp:
     image: ...
     labels:
-      traefik.enable: "true"
-      traefik.docker.network: "EDGEPROXY"
-      traefik.http.routers.myapp.rule: "Host(`app.example.com`)"
-      traefik.http.routers.myapp.entrypoints: "websecure"
-      traefik.http.routers.myapp.tls.certresolver: "letsencrypt"
-      # apply the public-app middleware chain from CS-Traefik:
-      traefik.http.routers.myapp.middlewares: "public-chain@file"
-      traefik.http.services.myapp.loadbalancer.server.port: "8080"
+      - "traefik.enable=true"
+      - "traefik.docker.network=EDGEPROXY"
+
+      # HTTP -> HTTPS redirect (per-router)
+      - "traefik.http.routers.myapp-http.rule=Host(`app.example.com`)"
+      - "traefik.http.routers.myapp-http.entrypoints=web"
+      - "traefik.http.routers.myapp-http.middlewares=https-redirect@file"
+
+      # HTTPS router
+      - "traefik.http.routers.myapp-https.rule=Host(`app.example.com`)"
+      - "traefik.http.routers.myapp-https.entrypoints=web-secure"
+      - "traefik.http.routers.myapp-https.tls=true"
+      - "traefik.http.routers.myapp-https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.myapp-https.service=myapp"
+
+      - "traefik.http.services.myapp.loadbalancer.server.port=8080"
     networks:
-      - edgeproxy
+      - proxy
 
 networks:
-  edgeproxy:
+  proxy:
     external: true
-    name: EDGEPROXY
+    name: ${PROXY_NETWORK:-EDGEPROXY}
 ```
 
-The `public-chain@file` middleware is provided by CS-Traefik and gives you
-HSTS, frame-deny, content-type-nosniff, compression, and a 1000 req/s baseline
-rate limit.
+The Traefik entrypoint is named `web-secure` (with hyphen) — same as
+the legacy stack. The `${STACK_NAME}-redirect-to-secure` middleware
+pattern from your existing compose files **continues to work** since
+each app defines its own redirect middleware.
+
+### Optional middleware hardening
+
+Apps choose what they need from `dynamic/middlewares.yml`:
+
+```yaml
+# Apply HSTS + frame-deny + content-type-nosniff + the BG header
+- "traefik.http.routers.myapp-https.middlewares=hardened-public@file"
+
+# Or compose your own:
+- "traefik.http.routers.myapp-https.middlewares=hsts@file,nosniff@file,bg-provider@file"
+
+# Or none at all (the proxy will not impose any policy on your traffic)
+```
+
+Available atomic middlewares: `bg-provider`, `compression`,
+`strip-auth`, `https-redirect`, `hsts`, `hsts-mild`, `frame-deny`,
+`frame-sameorigin`, `nosniff`, `referrer-strict`, `referrer-noreferrer`,
+`permissions-deny`, `rate-limit`, `rate-limit-strict`, `server-scrub`.
+
+Pre-composed example chains: `hardened-public`, `hardened-api`.
 
 ---
 
 ## TLS
 
-### Let's Encrypt (default)
+### Default — compatibility-first
 
-`LETSENCRYPT_EMAIL` is the only required value. Three resolvers are
-pre-configured in `config/traefik/traefik.yml`:
+`tls.options.default` (config/traefik/dynamic/tls.yml):
 
-- `letsencrypt` — production ACME with **TLS-ALPN-01** (default; works on
-  port 443).
-- `letsencrypt-http` — production ACME with **HTTP-01** (works on port 80).
-- `letsencrypt-staging` — ACME staging endpoint for testing.
+- Min version: **TLS 1.1** — accommodates older Android, KaiOS, and
+  feature-phone WebViews common in emerging markets.
+- Wide cipher list: TLS 1.3 (auto), modern AEAD, legacy CBC, plus RSA
+  key-exchange for very old clients.
+- TLS 1.0 is intentionally NOT enabled (POODLE / BEAST / SWEET32).
 
-Pick a resolver per router via `traefik.http.routers.X.tls.certresolver=`.
-
-#### Wildcards (DNS-01)
-
-For `*.example.com` style certificates you need DNS-01. Uncomment the
-`letsencrypt-dns` resolver in `traefik.yml`, set the provider, and pass
-the credentials as additional env vars in `.env`. Reference:
-[Traefik DNS providers](https://doc.traefik.io/traefik/https/acme/#providers).
-
-```env
-# .env additions for Cloudflare wildcards
-LETSENCRYPT_DNS_PROVIDER=cloudflare
-CF_DNS_API_TOKEN=...
-```
-
-### Manual certificates
-
-Drop your `*.crt` and `*.key` into `config/certs/static/` and reference
-them from `config/traefik/dynamic/tls.yml`:
+### Stricter options for sensitive routes
 
 ```yaml
-# config/traefik/dynamic/tls.yml
+# admin / payment / PCI workloads
+traefik.http.routers.checkout-https.tls.options=modern@file        # TLS 1.3 only
+traefik.http.routers.api-https.tls.options=intermediate@file       # TLS 1.2 minimum, AEAD only
+```
+
+### Let's Encrypt
+
+Three resolvers are pre-configured. Pick a resolver per router via
+`traefik.http.routers.X.tls.certresolver=...`:
+
+- **`letsencrypt`** — production ACME with TLS-ALPN-01 (DEFAULT, like
+  legacy).
+- **`letsencrypt-http`** — production ACME with HTTP-01 (port 80
+  required).
+- **`letsencrypt-staging`** — ACME staging endpoint for testing.
+
+Both HTTP-01 (port 80) and TLS-ALPN-01 (port 443) challenges are
+fully supported.
+
+### Wildcards / DNS-01
+
+The DNS-01 resolver template is **prepared but inactive** —
+`config/traefik/traefik.yml` has the section commented. We currently
+have no DNS-provider API integration on this stack. To activate later:
+
+1. Uncomment the `letsencrypt-dns` block in `traefik.yml`.
+2. Choose a provider from
+   [Traefik's DNS provider list](https://doc.traefik.io/traefik/https/acme/#providers).
+3. Add provider credentials to `.env` (e.g. `CF_DNS_API_TOKEN` for
+   Cloudflare).
+4. Reference from a router:
+
+   ```yaml
+   traefik.http.routers.foo.tls.certresolver=letsencrypt-dns
+   traefik.http.routers.foo.tls.domains[0].main=bauer-group.com
+   traefik.http.routers.foo.tls.domains[0].sans=*.bauer-group.com
+   ```
+
+### Manual / corporate-CA certificates
+
+Drop `*.crt` + `*.key` into `config/certs/static/`, then list each pair
+in `config/traefik/dynamic/tls.yml`:
+
+```yaml
 tls:
   certificates:
     - certFile: /etc/traefik/certs/static/wildcard.bauer-group.com.crt
       keyFile:  /etc/traefik/certs/static/wildcard.bauer-group.com.key
+      stores:
+        - default
 ```
 
 Reload picks up the change automatically (file provider watches the
 directory).
+
+---
+
+## Custom dynamic configuration
+
+For the 1% of routes that aren't in Docker labels (VMs, static IPs,
+external SaaS, on-prem appliances), drop your own `*.yml` into
+`config/traefik/dynamic/` next to `middlewares.yml` and `tls.yml`.
+
+A starter template lives at
+`config/traefik/dynamic/example-routes.yml.disabled`. Rename to `*.yml`
+to activate, then edit. Saves are picked up live (file provider has
+`watch=true`).
+
+Files ending in `.disabled` are ignored by Traefik (only `.yml` /
+`.yaml` extensions are loaded).
 
 ---
 
@@ -226,22 +349,27 @@ COMPOSE_PROFILES=monitoring
 
 then `sudo ./traefik.sh restart`. You get:
 
-- **Prometheus** at `https://${PROMETHEUS_HOST}` — scraping Traefik
-  metrics, host metrics (node-exporter), container metrics (cAdvisor),
-  and self-metrics from Loki/Grafana/Alertmanager.
-- **Grafana** at `https://${GRAFANA_HOST}` with three pre-provisioned
-  dashboards:
-  - *EDGEPROXY — Overview*: single pane (request rate, error %, latency,
-    cert expiry, host CPU/mem/disk, recent 5xx logs).
-  - *EDGEPROXY — Containers*: per-container CPU/memory/network/throttle.
-  - *EDGEPROXY — Logs Explorer*: Loki-backed log search across the stack.
+- **Prometheus** scraping Traefik metrics, host metrics
+  (node-exporter), container metrics (cAdvisor), and self-metrics from
+  Loki/Grafana/Alertmanager.
+- **Grafana** with three pre-provisioned dashboards (overview,
+  containers, logs explorer).
 - **Loki + Promtail** for log aggregation (Docker JSON logs + Traefik
   access/server file logs).
-- **Alertmanager** at `https://${ALERTMANAGER_HOST}` — pre-configured
-  rules for high CPU, low disk, container OOM, Traefik 5xx spikes, and
-  TLS expiry. Plug a Slack/email receiver into `config/alertmanager/alertmanager.yml`.
+- **Alertmanager** with pre-configured rules for high CPU, low disk,
+  container OOM, Traefik 5xx spikes, and TLS expiry.
 
-Want the upstream community dashboards in addition? Import via Grafana UI:
+All four UIs reachable via the api entrypoint:
+
+```text
+http://127.0.0.1:9090/dashboard/      # Traefik
+http://127.0.0.1:9090/grafana/        # Grafana (own login on top of BasicAuth)
+http://127.0.0.1:9090/prometheus/     # Prometheus
+http://127.0.0.1:9090/alertmanager/   # Alertmanager
+```
+
+Want the upstream community dashboards in addition? Import via Grafana
+UI:
 
 | Dashboard                | Grafana.com ID |
 | ------------------------ | -------------- |
@@ -254,16 +382,16 @@ Want the upstream community dashboards in addition? Import via Grafana UI:
 
 ## Auto-update
 
-Activate the profile in `.env`:
+Activate the profile:
 
 ```env
 COMPOSE_PROFILES=monitoring,auto-update
 ```
 
-Watchtower runs weekly (Sat 03:00 by default), updates only services with
-the `com.centurylinklabs.watchtower.enable=true` label (every CS-Traefik
-service), uses rolling restart, and prunes old images. Customise the
-schedule via `WATCHTOWER_SCHEDULE` (six-field cron).
+Watchtower runs weekly (Sat 03:00 by default), updates only services
+labelled `com.centurylinklabs.watchtower.enable=true` (every CS-Traefik
+service), uses rolling restart, and prunes old images. Customise via
+`WATCHTOWER_SCHEDULE` (six-field cron).
 
 ---
 
@@ -271,94 +399,89 @@ schedule via `WATCHTOWER_SCHEDULE` (six-field cron).
 
 ```text
 CS-Traefik/
-├── install.sh                     # one-line installer (curl|bash)
+├── install.sh                     # one-line installer + local wizard (mode-aware)
 ├── traefik.sh                     # central management console
 ├── docker-compose.yml             # core: Traefik
 ├── docker-compose.monitoring.yml  # profile: monitoring
 ├── docker-compose.auto-update.yml # profile: auto-update
 ├── .env.example                   # every option documented
-├── config/
-│   ├── traefik/
-│   │   ├── traefik.yml            # static config
-│   │   └── dynamic/
-│   │       ├── middlewares.yml    # security headers, chains
-│   │       └── tls.yml            # TLS options + manual certs
-│   ├── certs/{static,acme}/       # bring-your-own + ACME storage
-│   ├── prometheus/                # prometheus.yml + alerts.yml
-│   ├── alertmanager/              # alertmanager.yml
-│   ├── grafana/
-│   │   ├── provisioning/{datasources,dashboards}/
-│   │   └── dashboards/*.json
-│   ├── loki/loki-config.yml
-│   └── promtail/promtail-config.yml
-└── (no scripts/ folder -- everything lives in install.sh / traefik.sh)
+└── config/
+    ├── traefik/
+    │   ├── traefik.yml            # static config (entrypoints, resolvers, providers)
+    │   └── dynamic/
+    │       ├── middlewares.yml             # atomic opt-in middlewares + chains
+    │       ├── tls.yml                     # TLS options + manual certs
+    │       └── example-routes.yml.disabled # template for custom file-provider routes
+    ├── certs/{static,acme}/       # bring-your-own + ACME storage
+    ├── prometheus/                # prometheus.yml + alerts.yml
+    ├── alertmanager/              # alertmanager.yml
+    ├── grafana/
+    │   ├── provisioning/{datasources,dashboards}/
+    │   └── dashboards/*.json
+    ├── loki/loki-config.yml
+    └── promtail/promtail-config.yml
 ```
-
----
-
-## Configuration reference
-
-Every value is documented in [`.env.example`](.env.example). The wizard
-covers the values you have to pick (FQDNs, passwords, profile mix). The
-rest defaults sensibly.
-
-Resource limits, log rotation sizes, retention windows, and image tag pins
-are all overridable in `.env`.
 
 ---
 
 ## Migration from the legacy stack
 
-The old stack at `Z Docker Images/Traefik Reverse Proxy` used:
+| Concern               | Legacy v2.x stack             | CS-Traefik (this repo)         |
+| --------------------- | ----------------------------- | ------------------------------ |
+| Traefik version       | v2.11                         | v3.6 LTS                       |
+| Public network name   | `EDGEPROXY` (default)         | `EDGEPROXY` (default)          |
+| Internal network name | `EDGEPROXY_INTERNAL`          | `EDGEPROXY-internal`           |
+| Entrypoints           | `web` + `web-secure`          | `web` + `web-secure`           |
+| Default cert resolver | `letsencrypt` (TLS-ALPN-01)   | `letsencrypt` (TLS-ALPN-01)    |
+| HTTP→HTTPS redirect   | global at entrypoint          | global at entrypoint           |
+| Dashboard exposure    | `:9090` + path-prefix         | `:9090` + path-prefix          |
+| Dashboard auth        | BasicAuth + IP whitelist      | BasicAuth + IP whitelist       |
+| Monitoring URLs       | `:9090/metrics`, `/grafana`   | `:9090/grafana`, `/prometheus` |
 
-- Traefik **v2.11** — replaced by **v3.x** (LTS).
-- Path-prefix admin routing (`/dashboard`, `/grafana`) — replaced by
-  dedicated subdomains with HTTPS-only access.
-- HostRegexp v2 syntax with named groups — replaced by Traefik v3 routing
-  rules (Go regex if needed).
-- Two networks (`EDGEPROXY` + `EDGEPROXY_INTERNAL`) — kept identical
-  (`EDGEPROXY` + `EDGEPROXY-internal`, hyphen instead of underscore to
-  match the modern naming convention; legacy `EDGEPROXY` external network
-  name is preserved).
+**Existing app `docker-compose.yml` files keep working without
+modification.** The reverse-proxy interface (network name, entrypoint
+names, resolver names, port assignments) is byte-compatible with the
+legacy EDGEPROXY stack.
+
+The internal network name changed from underscore to hyphen
+(`EDGEPROXY_INTERNAL` → `EDGEPROXY-internal`) only because the new
+stack uses Compose's automatic naming convention. App stacks normally
+do not attach to that network — only Traefik and the monitoring stack
+use it.
 
 Migration steps:
 
-1. Stand up CS-Traefik on a different host (or different ports) for soak.
-2. DNS-cutover dashboard / grafana to the new subdomains.
-3. Re-label your existing service stacks: drop the path-prefix routing,
-   add per-host routers, point at `EDGEPROXY` (already running).
-4. Decommission the v2 stack once everything is migrated.
-
-The data is fully portable — `traefik.sh backup` from the old stack is
-not needed; ACME storage will simply re-issue new Let's Encrypt certs on
-the new edge.
+1. Stand up CS-Traefik on the same host (different ports) or a separate
+   one for soak.
+2. DNS-cutover happens at the app level — your app stacks already point
+   to `Host(\`app.example.com\`)`, so all you do is swap which Traefik
+   binary is on the receiving end.
+3. ACME storage will simply re-issue new Let's Encrypt certs on the new
+   edge.
+4. Decommission the v2 stack once migration is complete.
 
 ---
 
-## Security
+## Security defaults
 
-- **Admin surfaces** are HTTPS-only, on dedicated subdomains, behind
-  IP whitelist + BasicAuth + 10 req/s rate limit + modern headers.
-- **Public surfaces** get HSTS preload-eligible, frame-deny, content-type-
-  nosniff, referrer-policy strict-origin-when-cross-origin, permissions-
-  policy denying camera/mic/geolocation/payment, and Server header
-  scrubbing.
-- **Containers** drop `ALL` capabilities and re-add only what's needed
-  (NET_BIND_SERVICE for Traefik on 80/443; SYS_TIME for node-exporter
-  clock skew). `no-new-privileges:true` everywhere.
-- **Non-root users** for Prometheus (65534), Grafana (472), Loki (10001).
-- **Read-only docker socket** mount for Traefik. (Move to
-  `tecnativa/docker-socket-proxy` if you want extra defence.)
-- **No secrets in code** — `.env` is gitignored and chmod 600 by the
-  wizard.
+- **Admin surfaces**: localhost-only by default, BasicAuth + IP
+  whitelist always enforced. Public exposure is opt-in.
+- **App surfaces**: minimal headers — only `X-Solution-Provider`. No
+  HSTS / Permissions-Policy / Frame-Deny / rate-limits imposed by
+  default. Apps choose what they need.
+- **TLS**: 1.1 minimum, broad cipher list for legacy compat, no TLS 1.0.
+- **Containers**: drop `ALL` capabilities, `no-new-privileges:true`,
+  non-root users for Prometheus / Grafana / Loki, read-only Docker
+  socket on Traefik.
+- **Secrets**: `.env` is gitignored and chmod 600 by the wizard.
 
 Future hardening (not enabled by default; PR-ready):
 
-- Forward-auth via Authelia or Authentik for SSO across all admin
-  surfaces.
-- mTLS for backend-only routers (TLS options block in `dynamic/tls.yml`
-  has a commented-out template).
+- Forward-auth via Authelia or Authentik for SSO across admin surfaces.
+- mTLS for backend-only routers (template in `dynamic/tls.yml`).
 - WAF in front (Coraza middleware plugin).
+- `tecnativa/docker-socket-proxy` sidecar instead of direct socket
+  mount.
 
 ---
 
@@ -366,7 +489,7 @@ Future hardening (not enabled by default; PR-ready):
 
 ```bash
 sudo ./traefik.sh backup
-# -> /opt/edgeproxy/backups/edgeproxy_YYYYMMDD_HHMMSS.tar.gz
+# -> ${DATA_DIRECTORY}/backups/edgeproxy_YYYYMMDD_HHMMSS.tar.gz
 ```
 
 Archive contains: `.env`, the entire `config/`, ACME certificate JSON,
@@ -380,17 +503,16 @@ Restore is a manual `tar -xzf` into the same `DATA_DIRECTORY` plus
 ## Troubleshooting
 
 ```bash
-sudo ./traefik.sh validate     # compose + traefik.yml syntax check
-sudo ./traefik.sh logs traefik # follow Traefik
+sudo ./traefik.sh validate           # compose + traefik.yml syntax check
+sudo ./traefik.sh logs traefik       # follow Traefik
 sudo docker exec edgeproxy-traefik traefik version
 
 # ACME debug
-sudo docker exec edgeproxy-traefik cat /etc/traefik/certs/acme/letsencrypt.json | jq .
+sudo cat ${DATA_DIRECTORY}/traefik/acme/letsencrypt.json | jq .
 ```
 
 If Let's Encrypt rate-limits you during testing, switch the resolver to
-`letsencrypt-staging` (per-router via labels, or globally in
-`traefik.yml`).
+`letsencrypt-staging` per-router via labels.
 
 ---
 
@@ -398,7 +520,8 @@ If Let's Encrypt rate-limits you during testing, switch the resolver to
 
 [MIT](LICENSE) — Copyright © 2026 BAUER GROUP.
 
-Bundled open-source components retain their own licenses. See [`NOTICE.md`](NOTICE.md).
+Bundled open-source components retain their own licenses. See
+[`NOTICE.md`](NOTICE.md).
 
 ---
 

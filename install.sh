@@ -447,15 +447,22 @@ run_wizard() {
     set_env DATA_DIRECTORY  "$data_dir"
 
     # ---- Profiles ----
+    # Default = core-only. Monitoring and auto-update are opt-in -- this
+    # matches "minimum surface, opt into more" rather than "ship the full
+    # stack and hope nothing breaks". Same logic as the legacy stack.
     print_section "Profiles (opt-in features)"
     cat <<EOF
 Available profiles:
     monitoring   -> Prometheus + Grafana + Loki + Promtail + exporters
-    auto-update  -> Watchtower keeps images current on a weekly cron
+                    Reachable on the api entrypoint (localhost-only by
+                    default), at /grafana, /prometheus, /alertmanager.
+    auto-update  -> Watchtower keeps images current on a weekly cron.
+
+Default = core only (just Traefik). Skip both for the leanest setup.
 EOF
     echo
     local profiles=""
-    if [[ "$(ask_yes_no "Enable monitoring profile?" Y)" == "yes" ]]; then
+    if [[ "$(ask_yes_no "Enable monitoring profile?" N)" == "yes" ]]; then
         profiles="monitoring"
     fi
     if [[ "$(ask_yes_no "Enable auto-update profile?" N)" == "yes" ]]; then
@@ -464,42 +471,78 @@ EOF
     fi
     set_env COMPOSE_PROFILES "$profiles"
 
-    # ---- Dashboard ----
-    print_section "Traefik dashboard (admin UI)"
-    local dashboard_pass_display="" dashboard_user="admin"
-    if [[ "$(ask_yes_no "Expose the dashboard on its own subdomain?" Y)" == "yes" ]]; then
-        set_env DASHBOARD_ENABLED "true"
+    # ---- Admin access (api entrypoint) ----
+    print_section "Admin access (Traefik dashboard + monitoring UIs)"
+    cat <<EOF
+Admin UIs are reached through the dedicated 'api' entrypoint, NEVER on
+port 443 by default. Three modes:
 
-        local dashboard_host dashboard_whitelist auth_string dashboard_pass
-        dashboard_host=$(ask "Dashboard FQDN" "traefik.${default_domain}")
-        set_env DASHBOARD_HOST "$dashboard_host"
+  1) Localhost only -- bind 127.0.0.1:9090 (DEFAULT, most secure).
+     Reach via SSH-tunnel:
+       ssh -L 9090:127.0.0.1:9090 user@server
+       open http://127.0.0.1:9090/dashboard/
+  2) LAN-accessible -- bind 0.0.0.0:9090 (BasicAuth-only, no TLS).
+     OK on trusted networks; not for public internet.
+  3) Public FQDN over HTTPS -- additionally route /dashboard /grafana
+     /prometheus /alertmanager on a dedicated FQDN like
+     admin.bauer-group.com (BasicAuth + IP whitelist + Let's Encrypt TLS).
 
-        dashboard_whitelist=$(ask "IP whitelist (comma-separated CIDRs)" \
-            "127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8")
-        set_env DASHBOARD_WHITELIST "$dashboard_whitelist"
+EOF
 
-        dashboard_user=$(ask "Dashboard username" "admin")
-        if [[ "$INTERACTIVE" == true ]]; then
-            echo
-            if [[ "$(ask_yes_no "Generate a random password?" Y)" == "yes" ]]; then
-                dashboard_pass=$(generate_password)
-                print_warning "Generated dashboard password: ${BOLD}${dashboard_pass}${NC}"
-                print_warning "(this is the LAST time you'll see it -- save it now)"
-            else
-                read -rsp "$(echo -e "${BOLD}? Dashboard password${NC}: ")" dashboard_pass
-                echo
-            fi
-        else
-            dashboard_pass=$(generate_password)
-        fi
-
-        print_info "Generating bcrypt hash ..."
-        auth_string=$(generate_basic_auth "$dashboard_user" "$dashboard_pass")
-        set_env DASHBOARD_USERS "$auth_string"
-        dashboard_pass_display="$dashboard_pass"
-    else
-        set_env DASHBOARD_ENABLED "false"
+    local mode_choice="1"
+    if [[ "$INTERACTIVE" == true ]]; then
+        read -rp "$(echo -e "${BOLD}? Mode${NC} [1=localhost / 2=LAN / 3=public FQDN] [${YELLOW}1${NC}]: ")" mode_choice
+        mode_choice=${mode_choice:-1}
     fi
+
+    local api_host="" api_base_url="http://localhost:9090"
+    case "$mode_choice" in
+        2)
+            set_env API_BIND      "0.0.0.0"
+            set_env API_HOST      ""
+            set_env API_BASE_URL  "http://localhost:9090"
+            ;;
+        3)
+            api_host=$(ask "Admin FQDN (must host NO application)" "admin.${default_domain}")
+            set_env API_BIND      "127.0.0.1"
+            set_env API_HOST      "$api_host"
+            set_env API_BASE_URL  "https://${api_host}"
+            api_base_url="https://${api_host}"
+            ;;
+        *)
+            set_env API_BIND      "127.0.0.1"
+            set_env API_HOST      ""
+            set_env API_BASE_URL  "http://localhost:9090"
+            ;;
+    esac
+
+    set_env API_PORT "9090"
+
+    local api_whitelist
+    api_whitelist=$(ask "IP whitelist (comma-separated CIDRs)" \
+        "127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8")
+    set_env API_WHITELIST "$api_whitelist"
+
+    local admin_user admin_pass admin_pass_display="" auth_string
+    admin_user=$(ask "Admin username (BasicAuth)" "admin")
+    if [[ "$INTERACTIVE" == true ]]; then
+        echo
+        if [[ "$(ask_yes_no "Generate a random password?" Y)" == "yes" ]]; then
+            admin_pass=$(generate_password)
+            print_warning "Generated admin password: ${BOLD}${admin_pass}${NC}"
+            print_warning "(this is the LAST time you'll see it -- save it now)"
+        else
+            read -rsp "$(echo -e "${BOLD}? Admin password${NC}: ")" admin_pass
+            echo
+        fi
+    else
+        admin_pass=$(generate_password)
+    fi
+
+    print_info "Generating bcrypt hash ..."
+    auth_string=$(generate_basic_auth "$admin_user" "$admin_pass")
+    set_env API_USERS "$auth_string"
+    admin_pass_display="$admin_pass"
 
     # ---- Let's Encrypt ----
     print_section "Let's Encrypt"
@@ -513,20 +556,16 @@ EOF
         set_env LETSENCRYPT_CA "https://acme-v02.api.letsencrypt.org/directory"
     fi
 
-    # ---- Monitoring (if profile selected) ----
+    # ---- Monitoring credentials (if profile selected) ----
     local grafana_pass_display="" grafana_user="admin"
     if [[ ",$profiles," == *",monitoring,"* ]]; then
-        print_section "Monitoring (Grafana / Prometheus / Alertmanager)"
-
-        local grafana_host prometheus_host alertmanager_host grafana_pass
-        grafana_host=$(ask "Grafana FQDN" "grafana.${default_domain}")
-        prometheus_host=$(ask "Prometheus FQDN" "prometheus.${default_domain}")
-        alertmanager_host=$(ask "Alertmanager FQDN" "alerts.${default_domain}")
-
-        set_env GRAFANA_HOST       "$grafana_host"
-        set_env PROMETHEUS_HOST    "$prometheus_host"
-        set_env ALERTMANAGER_HOST  "$alertmanager_host"
-
+        print_section "Monitoring (Grafana admin credentials)"
+        echo "Grafana, Prometheus, and Alertmanager all live behind the api"
+        echo "entrypoint at /grafana /prometheus /alertmanager. They share the"
+        echo "same BasicAuth + IP whitelist as the Traefik dashboard."
+        echo "Grafana additionally has its OWN login (the credentials below)."
+        echo
+        local grafana_pass
         grafana_user=$(ask "Grafana admin username" "admin")
         set_env GRAFANA_ADMIN_USER "$grafana_user"
 
@@ -552,11 +591,18 @@ EOF
     echo
     echo "  Configuration: $ENV_FILE"
     echo "  Permissions:   600 (owner read/write only)"
-    if [[ -n "$dashboard_pass_display" ]] || [[ -n "$grafana_pass_display" ]]; then
+    echo
+    echo "  Admin access:"
+    case "$mode_choice" in
+        2) echo "    Mode: LAN-accessible at  http://<host>:9090/dashboard/" ;;
+        3) echo "    Mode: Public FQDN at     https://${api_host}/dashboard/" ;;
+        *) echo "    Mode: Localhost only     ssh -L 9090:127.0.0.1:9090 user@host" ;;
+    esac
+    if [[ -n "$admin_pass_display" ]] || [[ -n "$grafana_pass_display" ]]; then
         echo
         echo -e "  ${YELLOW}${BOLD}Generated credentials (save these now!):${NC}"
-        [[ -n "$dashboard_pass_display" ]] && echo -e "    Traefik dashboard: ${dashboard_user} / ${BOLD}${dashboard_pass_display}${NC}"
-        [[ -n "$grafana_pass_display"   ]] && echo -e "    Grafana:           ${grafana_user} / ${BOLD}${grafana_pass_display}${NC}"
+        [[ -n "$admin_pass_display"   ]] && echo -e "    Admin (BasicAuth): ${admin_user} / ${BOLD}${admin_pass_display}${NC}"
+        [[ -n "$grafana_pass_display" ]] && echo -e "    Grafana login:     ${grafana_user} / ${BOLD}${grafana_pass_display}${NC}"
     fi
     echo
 }

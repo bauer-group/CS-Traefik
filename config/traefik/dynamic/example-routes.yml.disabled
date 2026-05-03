@@ -1,0 +1,56 @@
+# =============================================================================
+# Custom Traefik Routes -- EXAMPLE (rename to *.yml to activate)
+# =============================================================================
+# Traefik's file provider loads every *.yml / *.yaml in this directory.
+# It does NOT recurse into sub-directories -- keep custom files at this
+# level next to middlewares.yml and tls.yml.
+#
+# Files ending in .disabled are ignored (Traefik only matches .yml/.yaml).
+# To activate this template:
+#   cp example-routes.yml.disabled my-routes.yml
+#   # edit to taste -- saves are picked up live (file provider watch=true)
+#
+# When to use the file provider over Docker labels?
+#   - Routing to a service that doesn't run in Docker (VM, static IP,
+#     external SaaS, on-prem appliance).
+#   - Centrally-managed config (versioned with the proxy repo, not
+#     scattered across N app repos).
+#   - Advanced TLS / cert-store / mirroring features that don't map
+#     cleanly to Docker labels.
+#
+# 99% of routes belong on the app side as Docker labels (co-located with
+# the service they describe). This file is for the remaining 1%.
+# =============================================================================
+
+http:
+
+  # ---- Routers ----------------------------------------------------------------
+  routers:
+
+    legacy-vm-app:
+      rule: "Host(`legacy.bauer-group.com`)"
+      entryPoints:
+        - web-secure
+      service: legacy-vm-app
+      tls:
+        certResolver: letsencrypt
+      # Reference middlewares from middlewares.yml (or other custom files):
+      middlewares:
+        - bg-provider@file
+        - hsts-mild@file
+        - nosniff@file
+
+  # ---- Services ---------------------------------------------------------------
+  services:
+
+    legacy-vm-app:
+      loadBalancer:
+        servers:
+          - url: "http://10.20.30.40:8080"
+        passHostHeader: true
+        responseForwarding:
+          flushInterval: 100ms
+        healthCheck:
+          path: /health
+          interval: 30s
+          timeout: 5s

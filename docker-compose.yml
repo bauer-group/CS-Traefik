@@ -9,6 +9,15 @@
 # Direct usage (without traefik.sh):
 #   docker compose up -d
 #   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#
+# COMPATIBILITY NOTES (vs. legacy EDGEPROXY v2 stack):
+#   - Entrypoints are named `web` and `web-secure` (with hyphen) -- IDENTICAL
+#     to the legacy stack so existing app `entrypoints=web-secure` labels keep
+#     working without modification.
+#   - The default cert resolver is `letsencrypt` (TLS-ALPN-01) -- IDENTICAL.
+#   - The public network defaults to ${NETWORK_NAME:-EDGEPROXY} -- IDENTICAL.
+#   - Admin UIs (dashboard) live on the dedicated `api` entrypoint, NOT on
+#     port 443 (matches the legacy localhost:9090 pattern).
 # =============================================================================
 
 name: ${STACK_NAME:-edgeproxy}
@@ -23,64 +32,71 @@ services:
     container_name: ${STACK_NAME:-edgeproxy}-traefik
     hostname: traefik
     restart: unless-stopped
-    # Drop all caps; only re-add the few Traefik actually needs (binding
-    # privileged ports 80/443 needs NET_BIND_SERVICE on rootless setups).
     cap_drop:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
-    # Stop_grace_period: long enough for in-flight requests to drain
-    # gracefully (default Traefik graceful timeout is 10s).
     stop_grace_period: 30s
     labels:
       # Opt-in to the optional auto-update profile via Watchtower.
       com.centurylinklabs.watchtower.enable: "true"
 
-      # ---- Self-routing for the dashboard ------------------------------
-      # The Traefik dashboard is reached only on its dedicated FQDN over
-      # HTTPS, with bcrypt BasicAuth + IP whitelist + rate-limit. Path
-      # prefixes on the public 80/443 entrypoints are NOT exposed (legacy
-      # stack used a path-prefix; we now isolate the admin surface).
+      # =========================================================================
+      # Dashboard router -- on the dedicated `api` entrypoint, NEVER on 443.
+      # =========================================================================
+      # The api entrypoint binds to ${API_BIND:-127.0.0.1}:${API_PORT:-9090}
+      # (see ports section) so by default the dashboard is reachable ONLY
+      # via the Docker host's loopback. SSH-tunnel for remote access:
+      #   ssh -L 9090:127.0.0.1:9090 user@server
+      #   then open http://127.0.0.1:9090/dashboard/
+      #
+      # To also expose admin UIs on a public FQDN (https://${API_HOST}/),
+      # set API_HOST in .env -- a second router on web-secure activates
+      # automatically (BasicAuth + IP whitelist enforced).
       traefik.enable: "true"
       traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}"
 
-      traefik.http.routers.dashboard.rule: "Host(`${DASHBOARD_HOST:-traefik.example.com}`)"
-      traefik.http.routers.dashboard.entrypoints: "websecure"
-      traefik.http.routers.dashboard.service: "api@internal"
-      traefik.http.routers.dashboard.tls: "true"
-      traefik.http.routers.dashboard.tls.certresolver: "letsencrypt"
-      # Middlewares for the dashboard. The order matters -- whitelist runs
-      # first (cheap reject of unauthorised IPs), THEN auth, THEN strict
-      # rate-limit, THEN security headers on the response.
-      traefik.http.routers.dashboard.middlewares: "dashboard-whitelist,dashboard-auth,rate-limit-strict@file,secure-headers@file"
+      # ---- Localhost dashboard (always on, on the `api` entrypoint) ----
+      traefik.http.routers.dashboard-local.rule: "PathPrefix(`/api`) || PathPrefix(`/dashboard`)"
+      traefik.http.routers.dashboard-local.entrypoints: "api"
+      traefik.http.routers.dashboard-local.service: "api@internal"
+      traefik.http.routers.dashboard-local.middlewares: "api-auth,api-whitelist,dashboard-redirect"
 
-      # Dashboard middlewares -- defined here (not in dynamic/middlewares.yml)
-      # because their values come from .env and Compose substitution is the
-      # cleanest way to wire env -> Traefik for these.
-      traefik.http.middlewares.dashboard-whitelist.ipallowlist.sourcerange: "${DASHBOARD_WHITELIST:-127.0.0.1/32, ::1/128}"
-      traefik.http.middlewares.dashboard-auth.basicauth.users: "${DASHBOARD_USERS:-}"
-      traefik.http.middlewares.dashboard-auth.basicauth.realm: "CS-Traefik Dashboard"
-      traefik.http.middlewares.dashboard-auth.basicauth.removeheader: "true"
+      # ---- Public dashboard (only when API_HOST is set in .env) ----
+      # The `${API_HOST:+...}` syntax: empty when API_HOST is unset, so the
+      # rule becomes empty and Traefik discards the router as invalid.
+      # That is the intended fail-closed behaviour.
+      traefik.http.routers.dashboard-public.rule: "${API_HOST:+Host(\\`${API_HOST}\\`) && (PathPrefix(\\`/api\\`) || PathPrefix(\\`/dashboard\\`))}"
+      traefik.http.routers.dashboard-public.entrypoints: "web-secure"
+      traefik.http.routers.dashboard-public.service: "api@internal"
+      traefik.http.routers.dashboard-public.tls: "true"
+      traefik.http.routers.dashboard-public.tls.certresolver: "letsencrypt"
+      traefik.http.routers.dashboard-public.middlewares: "api-auth,api-whitelist,dashboard-redirect"
+
+      # ---- Middlewares used by both routers above ----
+      # Defined here (not in dynamic/middlewares.yml) so they pick up
+      # ${DASHBOARD_USERS} / ${API_WHITELIST} from .env via Compose
+      # substitution -- one source of truth.
+      traefik.http.middlewares.api-whitelist.ipallowlist.sourcerange: "${API_WHITELIST:-127.0.0.1/32, ::1/128}"
+      traefik.http.middlewares.api-auth.basicauth.users: "${API_USERS:-}"
+      traefik.http.middlewares.api-auth.basicauth.realm: "CS-Traefik Admin"
+      traefik.http.middlewares.api-auth.basicauth.removeheader: "true"
+      # Redirect bare / to /dashboard/ for convenience.
+      traefik.http.middlewares.dashboard-redirect.redirectregex.regex: "^https?://[^/]+/?$$"
+      traefik.http.middlewares.dashboard-redirect.redirectregex.replacement: "/dashboard/"
+      traefik.http.middlewares.dashboard-redirect.redirectregex.permanent: "false"
 
     environment:
       TZ: ${TIME_ZONE:-Etc/UTC}
-      # ---- Substituted into traefik.yml at runtime via env-expansion ----
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ACCESS_LOG_FORMAT: ${ACCESS_LOG_FORMAT:-json}
       LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-admin@example.com}
       LETSENCRYPT_CA: ${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}
-      LETSENCRYPT_CHALLENGE: ${LETSENCRYPT_CHALLENGE:-tlschallenge}
-      LETSENCRYPT_DNS_PROVIDER: ${LETSENCRYPT_DNS_PROVIDER:-}
-      DASHBOARD_HOST: ${DASHBOARD_HOST:-traefik.example.com}
-      DASHBOARD_USERS: ${DASHBOARD_USERS:-}
-      DASHBOARD_WHITELIST: ${DASHBOARD_WHITELIST:-127.0.0.1/32}
-      HTTPS_REDIRECT: ${HTTPS_REDIRECT:-true}
       NETWORK_NAME: ${NETWORK_NAME:-EDGEPROXY}
-      TRAEFIK_TRUSTED_IPS: ${TRAEFIK_TRUSTED_IPS:-}
-      # DNS-01 provider credentials (passed through; Traefik reads them
-      # automatically based on LETSENCRYPT_DNS_PROVIDER).
+      # DNS-01 provider credentials (passed through if a DNS resolver is
+      # uncommented in traefik.yml -- inert otherwise).
       CF_API_EMAIL: ${CF_API_EMAIL:-}
       CF_API_KEY: ${CF_API_KEY:-}
       CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN:-}
@@ -91,34 +107,35 @@ services:
     ports:
       - "${HTTP_PORT:-80}:80/tcp"
       - "${HTTPS_PORT:-443}:443/tcp"
-      - "${HTTPS_PORT:-443}:443/udp"   # HTTP/3 (QUIC)
+      - "${HTTPS_PORT:-443}:443/udp"          # HTTP/3 (QUIC)
+      # Admin entrypoint -- bound to API_BIND (default 127.0.0.1, NOT
+      # the public interface). Set API_BIND=0.0.0.0 in .env to expose
+      # on the LAN (still BasicAuth-protected, no TLS by default on
+      # this entrypoint -- it's intended to be reached via SSH-tunnel
+      # or LAN). For public exposure, prefer API_HOST + the web-secure
+      # router (TLS, BasicAuth, IP whitelist).
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-9090}:9090/tcp"
     volumes:
-      # Read-only socket. For higher security, replace with the
-      # `tecnativa/docker-socket-proxy` sidecar -- the dashboard router
-      # already isolates the admin API on its own subdomain.
+      # Read-only socket. Promote to docker-socket-proxy if the threat
+      # model demands it -- the dashboard is already auth-gated.
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
       # Static + dynamic configuration (read-only).
       - ./config/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./config/traefik/dynamic:/etc/traefik/dynamic:ro
 
-      # Manual certificates (read-only). Drop *.crt + *.key here and
-      # reference them in config/traefik/dynamic/tls.yml.
+      # Manual certificates -- drop *.crt + *.key here and reference from
+      # config/traefik/dynamic/tls.yml.
       - ./config/certs/static:/etc/traefik/certs/static:ro
 
       # Let's Encrypt ACME storage (read-write -- contains issued certs +
-      # the ACME account key). Backed up by `traefik.sh backup`.
+      # ACME account key). Backed up by `traefik.sh backup`.
       - ${DATA_DIRECTORY:-./data}/traefik/acme:/etc/traefik/certs/acme:rw
 
-      # Access + Traefik own logs (read by Promtail when monitoring is on).
+      # Access + traefik.log (read by Promtail under monitoring profile).
       - ${DATA_DIRECTORY:-./data}/traefik/logs:/var/log/traefik:rw
     networks:
-      # `proxy` = the public-facing network every service stack joins
-      # to be reached by Traefik. Default name is EDGEPROXY (legacy).
       proxy:
-      # `proxy-internal` = an internal-only sidecar network that the
-      # monitoring profile attaches to so Prometheus can scrape Traefik
-      # without exposing the metrics port to the public network.
       proxy-internal:
     healthcheck:
       test: ["CMD", "traefik", "healthcheck", "--ping"]
@@ -141,12 +158,13 @@ services:
 # =============================================================================
 # Networks
 # =============================================================================
-# `proxy` is the EDGEPROXY public network -- service stacks attach to it
-# as `external: true` to be discovered by Traefik. Subnet is set in CGN
-# range (100.65.0.0/16) to avoid clashing with typical RFC1918 LANs.
+# `proxy` = EDGEPROXY public bridge -- service stacks attach as
+# `external: true` to be discovered by Traefik. Subnet uses CGN range
+# (100.65.0.0/16) to avoid clashing with typical RFC1918 LANs. Identical
+# layout to the legacy EDGEPROXY v2 stack so existing apps keep working.
 #
-# `proxy-internal` is for Traefik <-> monitoring chatter. Internal-only
-# (no host port mappings, no public reachability). Subnet 100.64.0.0/16.
+# `proxy-internal` = internal-only sidecar network for Traefik <-> monitoring
+# chatter. Not reachable from the host's public interfaces.
 networks:
   proxy:
     name: ${NETWORK_NAME:-EDGEPROXY}

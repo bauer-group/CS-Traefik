@@ -19,15 +19,15 @@ global:
 # -----------------------------------------------------------------------------
 # Logging
 # -----------------------------------------------------------------------------
+# File logging is on so Promtail (monitoring profile) can ingest it. The
+# file is bind-mounted to the host -- rotation is the host's job (use
+# logrotate, or just monitor disk via the Prometheus alerts in
+# config/prometheus/alerts.yml). Container stdout/stderr keeps using the
+# Docker json-file driver which DOES rotate (see compose `logging:`).
 log:
   level: "${LOG_LEVEL:-INFO}"
   format: json
   filePath: /var/log/traefik/traefik.log
-  noColor: true
-  maxSize: 50
-  maxBackups: 5
-  maxAge: 7
-  compress: true
 
 accessLog:
   filePath: /var/log/traefik/access.log
@@ -56,9 +56,11 @@ accessLog:
 # -----------------------------------------------------------------------------
 # API + dashboard
 # -----------------------------------------------------------------------------
-# Dashboard is exposed via the dashboard router (compose labels) -- it
-# is NOT served on a separate insecure port. `insecure: false` ensures
-# api@internal can only be reached through routed + auth-gated traffic.
+# Dashboard is reachable on the dedicated `api` entrypoint (default port
+# 9090, bound to 127.0.0.1 unless API_BIND in .env says otherwise) at
+# the /dashboard path -- routed by the dashboard router defined as
+# compose labels on the traefik service. Plain `--api.insecure=true` is
+# OFF: the api endpoint is only ever reached via an authenticated router.
 api:
   dashboard: true
   insecure: false
@@ -76,10 +78,20 @@ ping:
 # -----------------------------------------------------------------------------
 # Entry points
 # -----------------------------------------------------------------------------
-# web        -> public HTTP  (port 80,  redirects to HTTPS via dynamic config)
-# websecure  -> public HTTPS (port 443, with HTTP/3 / QUIC over UDP/443)
-# metrics    -> internal-only, scraped by Prometheus
-# ping       -> internal-only, container healthcheck
+# The names match the LEGACY EDGEPROXY stack so existing app stacks that
+# label themselves with `entrypoints=web` / `entrypoints=web-secure` keep
+# working without modification:
+#
+#   web         -> public HTTP  (port 80,  redirects to HTTPS by default)
+#   web-secure  -> public HTTPS (port 443, with HTTP/3 / QUIC over UDP/443)
+#   api         -> internal-only admin entrypoint (default 127.0.0.1:9090).
+#                  All admin UIs (dashboard, Grafana, Prometheus, ...) are
+#                  routed here behind BasicAuth + IP whitelist + rate-limit.
+#                  Bind interface is set via API_BIND in .env; 127.0.0.1
+#                  is the secure default. Set 0.0.0.0 only if you need
+#                  LAN-side access (still BasicAuth-protected).
+#   metrics     -> internal-only, scraped by Prometheus
+#   ping        -> internal-only, container healthcheck
 entryPoints:
 
   web:
@@ -87,7 +99,7 @@ entryPoints:
     http:
       redirections:
         entryPoint:
-          to: websecure
+          to: web-secure
           scheme: https
           permanent: true
     transport:
@@ -96,7 +108,7 @@ entryPoints:
         writeTimeout: 60s
         idleTimeout: 180s
 
-  websecure:
+  web-secure:
     address: ":443/tcp"
     http:
       tls:
@@ -109,6 +121,9 @@ entryPoints:
         writeTimeout: 60s
         idleTimeout: 180s
 
+  api:
+    address: ":9090/tcp"
+
   metrics:
     address: ":9100/tcp"
 
@@ -119,9 +134,12 @@ entryPoints:
 # -----------------------------------------------------------------------------
 # Providers
 # -----------------------------------------------------------------------------
-# Traefik discovers services from two sources:
+# Two sources for service / router definitions:
 #   docker -> container labels (most app stacks)
-#   file   -> dynamic/*.yml (manual TLS, certs, middlewares, custom routers)
+#   file   -> dynamic/*.yml -- ALL files in this directory are loaded.
+#             You can drop your own custom YAML here (e.g.
+#             my-routes.yml, corp-tls.yml, ...) and Traefik picks them
+#             up live. See dynamic/custom/README.md for examples.
 providers:
   docker:
     endpoint: "unix:///var/run/docker.sock"
@@ -138,23 +156,24 @@ providers:
 # -----------------------------------------------------------------------------
 # Certificate resolvers
 # -----------------------------------------------------------------------------
-# Three resolvers are pre-configured. Pick whichever fits the deployment:
+# Three Let's Encrypt resolvers are pre-wired. App stacks pick one via
+# label:  traefik.http.routers.<name>.tls.certresolver=letsencrypt
 #
 #   letsencrypt          -> production ACME with TLS-ALPN-01 challenge
-#                           (works on port 443; the default).
+#                           (port 443; matches what the legacy EDGEPROXY
+#                           stack used -- DEFAULT, do not rename).
 #
 #   letsencrypt-http     -> production ACME with HTTP-01 challenge
-#                           (works on port 80; useful when port 443 is
-#                           proxied / not directly reachable).
+#                           (port 80; useful when 443 is fronted by an
+#                           upstream that terminates TLS).
 #
 #   letsencrypt-staging  -> ACME staging endpoint (testing, no rate-limit
-#                           pain). Use during the initial roll-out, then
-#                           switch to `letsencrypt`.
+#                           pain). Switch to this during initial roll-out.
 #
-# DNS-01 (wildcard certs, behind-firewall hosts) is configured per
-# provider via env vars + a custom resolver -- see the example block below.
-# Routers select a resolver via Traefik labels:
-#   traefik.http.routers.foo.tls.certresolver=letsencrypt-staging
+# DNS-01 (wildcards / firewalled hosts) is documented as a commented
+# template at the bottom -- intentionally NOT activated, since we have
+# no DNS-provider API integration on this stack today. When that comes,
+# uncomment + add provider env vars to .env.
 certificatesResolvers:
 
   letsencrypt:
@@ -182,11 +201,16 @@ certificatesResolvers:
       keyType: EC256
       tlsChallenge: {}
 
-  # ---- DNS-01 example (wildcards / firewalled hosts) ----
-  # Uncomment + adjust the provider block. Provider credentials are passed
-  # as additional env vars in .env (CF_DNS_API_TOKEN for Cloudflare,
-  # AWS_ACCESS_KEY_ID for Route53, HETZNER_API_KEY for Hetzner, etc.).
-  # Reference: https://doc.traefik.io/traefik/https/acme/#providers
+  # ---- DNS-01 example (PREPARED, not active) ---------------------------------
+  # We currently have no DNS-provider API integration. To enable wildcards
+  # for *.bauer-group.com (or any domain), uncomment the block below,
+  # pick a provider from
+  #   https://doc.traefik.io/traefik/https/acme/#providers
+  # and add the provider-specific env vars to .env (e.g. CF_DNS_API_TOKEN
+  # for Cloudflare). Then point a router at it via:
+  #   traefik.http.routers.foo.tls.certresolver=letsencrypt-dns
+  #   traefik.http.routers.foo.tls.domains[0].main=bauer-group.com
+  #   traefik.http.routers.foo.tls.domains[0].sans=*.bauer-group.com
   #
   # letsencrypt-dns:
   #   acme:
@@ -195,7 +219,7 @@ certificatesResolvers:
   #     storage: /etc/traefik/certs/acme/letsencrypt-dns.json
   #     keyType: EC256
   #     dnsChallenge:
-  #       provider: cloudflare
+  #       provider: cloudflare        # change to your DNS provider
   #       resolvers:
   #         - "1.1.1.1:53"
   #         - "8.8.8.8:53"
