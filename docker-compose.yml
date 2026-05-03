@@ -22,6 +22,30 @@
 
 name: ${STACK_NAME:-edgeproxy}
 
+
+# =============================================================================
+# Shared logging policy (YAML anchor, referenced by every service)
+# =============================================================================
+# `mode: non-blocking` is the critical bit -- when the json-file driver's
+# ring buffer fills (because Promtail / log shipper isn't reading fast
+# enough), the kernel default behaviour is to BLOCK the container's
+# write() calls. On Traefik that means request handling stalls behind
+# log writes -- a log-pipeline issue silently becomes a request-pipeline
+# issue. With `mode: non-blocking`, the driver drops log lines instead.
+# Logs are non-critical, serving traffic is critical: this is the right
+# trade-off for an edge proxy stack.
+#
+# `max-buffer-size: 4m` sizes the per-container ring buffer. ~10-50k log
+# lines depending on length -- absorbs spikes before drops kick in.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    mode: non-blocking
+    max-buffer-size: ${LOG_MAX_BUFFER_SIZE:-4m}
+    max-size: ${LOG_MAX_SIZE:-50m}
+    max-file: "${LOG_MAX_FILE:-5}"
+
+
 services:
 
   # ---------------------------------------------------------------------------
@@ -270,13 +294,9 @@ services:
     # its CPU triggers Linux CFS throttling under spikes (100ms freezes
     # that look like 502s / timeouts to clients) even when the host has
     # idle headroom. If you specifically need to cap Traefik (multi-
-    # tenant Docker host), copy docker-compose.limits.yml.example,
-    # rename to docker-compose.limits.yml, and pass it as an extra `-f`.
-    logging:
-      driver: json-file
-      options:
-        max-size: ${LOG_MAX_SIZE:-50m}
-        max-file: "${LOG_MAX_FILE:-5}"
+    # tenant Docker host), add a docker-compose.override.yml at the
+    # repo root -- Compose merges it automatically.
+    logging: *default-logging
 
 
 # =============================================================================

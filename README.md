@@ -506,6 +506,43 @@ Migration steps:
 
 ---
 
+## Logging never blocks the application
+
+Every service uses the Docker `json-file` driver in
+**`mode: non-blocking`** with a 4 MB ring buffer per container.
+
+What this means in practice: if Loki or Promtail (or whatever log
+shipper you bolt on) stalls — even for several minutes — the
+application's `write()` to stdout / stderr returns immediately. The
+driver drops log lines once the buffer is full, but the **application
+keeps serving requests at full speed**.
+
+This breaks the textbook log-pipeline cascade:
+
+```text
+Loki slow  ->  Promtail buffers fill  ->  Promtail stops reading
+   ->  Docker json-file buffer fills  ->  WITHOUT non-blocking:
+                                          stdout write() blocks
+                                          ->  Traefik request handler
+                                              blocks on access-log write
+                                              ->  502s, timeouts
+   ->  WITH non-blocking (the default here): log lines dropped,
+       Traefik continues serving traffic at full speed.
+```
+
+Logs are non-critical. Serving traffic is critical. This is the
+right trade-off for an edge proxy.
+
+Tunables in `.env`:
+
+```env
+LOG_MAX_BUFFER_SIZE=4m    # per-container ring buffer (≈ 10-50k lines)
+LOG_MAX_SIZE=50m          # rotation: max single file size
+LOG_MAX_FILE=5            # rotation: max number of rotated files
+```
+
+---
+
 ## Resource limits
 
 **No `deploy.resources.limits` are set on any service by default.**

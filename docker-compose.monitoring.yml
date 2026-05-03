@@ -33,6 +33,18 @@
 #       https://${API_HOST}/grafana/   /prometheus/   ...
 # =============================================================================
 
+# Shared logging policy -- see docker-compose.yml for the rationale on
+# `mode: non-blocking`. Repeated here because YAML anchors do not cross
+# files; the values stay in sync via the same ${LOG_*} env vars.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    mode: non-blocking
+    max-buffer-size: ${LOG_MAX_BUFFER_SIZE:-4m}
+    max-size: ${LOG_MAX_SIZE:-50m}
+    max-file: "${LOG_MAX_FILE:-5}"
+
+
 services:
 
   # ---------------------------------------------------------------------------
@@ -97,11 +109,7 @@ services:
     # NO `deploy.resources.limits`. A throttled Prometheus drops scrape
     # windows -> blind spots in the metrics. A throttled / OOM'd
     # Prometheus is worse than no Prometheus.
-    logging:
-      driver: json-file
-      options:
-        max-size: ${LOG_MAX_SIZE:-50m}
-        max-file: "${LOG_MAX_FILE:-5}"
+    logging: *default-logging
 
   # ---------------------------------------------------------------------------
   # Grafana -- visualisation
@@ -188,11 +196,7 @@ services:
     # NO `deploy.resources.limits`. Grafana under load (large dashboard
     # + many concurrent viewers) wants headroom; capping it just makes
     # dashboards slow.
-    logging:
-      driver: json-file
-      options:
-        max-size: ${LOG_MAX_SIZE:-50m}
-        max-file: "${LOG_MAX_FILE:-5}"
+    logging: *default-logging
 
   # ---------------------------------------------------------------------------
   # Loki -- log aggregator (internal only -- no public routes)
@@ -234,11 +238,7 @@ services:
     # Docker json-file driver buffers fill -> writes to stdout block
     # in EVERY container on the host -- including Traefik. Domino.
     # Let Loki use whatever the host can give it.
-    logging:
-      driver: json-file
-      options:
-        max-size: ${LOG_MAX_SIZE:-50m}
-        max-file: "${LOG_MAX_FILE:-5}"
+    logging: *default-logging
 
   # ---------------------------------------------------------------------------
   # Promtail -- log shipper
@@ -271,11 +271,7 @@ services:
     depends_on:
       loki:
         condition: service_healthy
-    logging:
-      driver: json-file
-      options:
-        max-size: ${LOG_MAX_SIZE:-50m}
-        max-file: "${LOG_MAX_FILE:-5}"
+    logging: *default-logging
 
   # ---------------------------------------------------------------------------
   # Alertmanager -- alert routing
@@ -328,11 +324,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    logging:
-      driver: json-file
-      options:
-        max-size: ${LOG_MAX_SIZE:-50m}
-        max-file: "${LOG_MAX_FILE:-5}"
+    logging: *default-logging
 
   # ---------------------------------------------------------------------------
   # node-exporter -- host metrics (internal only)
@@ -368,11 +360,7 @@ services:
       - /:/host/root:ro,rslave
     networks:
       proxy-internal:
-    logging:
-      driver: json-file
-      options:
-        max-size: ${LOG_MAX_SIZE:-50m}
-        max-file: "${LOG_MAX_FILE:-5}"
+    logging: *default-logging
 
   # ---------------------------------------------------------------------------
   # cAdvisor -- container metrics (internal only)
@@ -406,8 +394,4 @@ services:
       - /etc/machine-id:/etc/machine-id:ro
     networks:
       proxy-internal:
-    logging:
-      driver: json-file
-      options:
-        max-size: ${LOG_MAX_SIZE:-50m}
-        max-file: "${LOG_MAX_FILE:-5}"
+    logging: *default-logging

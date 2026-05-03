@@ -109,3 +109,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   Traefik. Caps belong in a per-host `docker-compose.override.yml`
   when explicitly needed (multi-tenant Docker host, regulatory limit),
   not as a hidden default that bottlenecks everyone.
+
+* **`mode: non-blocking` json-file driver on every service** with a 4 MB
+  per-container ring buffer (`LOG_MAX_BUFFER_SIZE`). CRITICAL
+  guarantee: a stalled Loki / Promtail / log shipper CANNOT cascade
+  into Traefik request handling. When the ring buffer fills, log lines
+  are dropped instead of blocking the application's stdout writes.
+  Configured once via a YAML anchor (`x-logging: &default-logging`)
+  and referenced from every service for single-source-of-truth.
