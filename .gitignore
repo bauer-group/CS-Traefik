@@ -1,0 +1,49 @@
+# =============================================================================
+# CS-Traefik - Git Ignore
+# =============================================================================
+
+# Local environment configuration (NEVER commit secrets)
+.env
+.env.local
+.env.*.local
+.env.backup.*
+
+# Manual certificate uploads (private keys must never reach git)
+config/certs/static/*.crt
+config/certs/static/*.key
+config/certs/static/*.pem
+config/certs/static/*.p12
+config/certs/static/*.pfx
+
+# Let's Encrypt ACME storage (contains issued certificates + account key)
+config/certs/acme/*.json
+config/certs/acme/account.json
+config/certs/acme/letsencrypt.json
+
+# Runtime data / volumes (when bind-mounted under ./data)
+data/
+backups/
+
+# Editor & OS noise
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.bak
+.tmp/
+
+# Keep example certs and provisioning structure
+!config/certs/static/.gitkeep
+!config/certs/static/README.md
+!config/certs/acme/.gitkeep

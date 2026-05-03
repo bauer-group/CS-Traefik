@@ -1,0 +1,61 @@
+# =============================================================================
+# CS-Traefik - Auto-Update Profile Overlay (Watchtower)
+# =============================================================================
+# Watchtower keeps every labelled container's image fresh on a cron
+# schedule. Only services with the label
+#   com.centurylinklabs.watchtower.enable=true
+# are touched -- in this stack that is every service we ship.
+#
+# Activate via:
+#   COMPOSE_PROFILES=auto-update
+# (and let traefik.sh wire the right `-f` flags) or directly:
+#   docker compose -f docker-compose.yml -f docker-compose.auto-update.yml up -d
+# =============================================================================
+
+services:
+
+  watchtower:
+    image: ${WATCHTOWER_IMAGE:-nickfedor/watchtower:latest}
+    container_name: ${STACK_NAME:-edgeproxy}-watchtower
+    hostname: watchtower
+    restart: unless-stopped
+    profiles: [auto-update]
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TIME_ZONE:-Etc/UTC}
+
+      # Core behaviour
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "false"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_ROLLING_RESTART: "true"
+      WATCHTOWER_TIMEOUT: ${WATCHTOWER_TIMEOUT:-60s}
+      WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 3 * * 6}
+      WATCHTOWER_NO_STARTUP_MESSAGE: "false"
+
+      # Notifications (passthrough -- only active if .env sets them)
+      WATCHTOWER_NOTIFICATIONS: ${WATCHTOWER_NOTIFICATIONS:-}
+      WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL: ${WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL:-}
+      WATCHTOWER_NOTIFICATION_SLACK_IDENTIFIER: ${WATCHTOWER_NOTIFICATION_SLACK_IDENTIFIER:-edgeproxy}
+      WATCHTOWER_NOTIFICATION_EMAIL_FROM: ${WATCHTOWER_NOTIFICATION_EMAIL_FROM:-}
+      WATCHTOWER_NOTIFICATION_EMAIL_TO: ${WATCHTOWER_NOTIFICATION_EMAIL_TO:-}
+      WATCHTOWER_NOTIFICATION_EMAIL_SERVER: ${WATCHTOWER_NOTIFICATION_EMAIL_SERVER:-}
+      WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PORT: ${WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PORT:-}
+      WATCHTOWER_NOTIFICATION_EMAIL_SERVER_USER: ${WATCHTOWER_NOTIFICATION_EMAIL_SERVER_USER:-}
+      WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PASSWORD: ${WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PASSWORD:-}
+    labels:
+      # Watchtower can update itself if labelled.
+      com.centurylinklabs.watchtower.enable: "true"
+      traefik.enable: "false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      proxy-internal:
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-50m}
+        max-file: "${LOG_MAX_FILE:-5}"

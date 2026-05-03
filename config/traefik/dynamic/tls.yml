@@ -1,0 +1,111 @@
+# =============================================================================
+# Traefik v3 - TLS Options and Manual Certificates
+# =============================================================================
+# Two unrelated concerns live here:
+#   1. TLS options -- cipher suites, min version, mTLS for routers
+#   2. Manual certificates -- bring-your-own-cert files in config/certs/static
+#
+# Routers select a TLS option set via labels:
+#   traefik.http.routers.foo.tls.options=modern@file
+# =============================================================================
+
+tls:
+
+  # -------------------------------------------------------------------------
+  # TLS options
+  # -------------------------------------------------------------------------
+  # Reference: https://doc.traefik.io/traefik/https/tls/#tls-options
+  # Cipher / curve choices follow Mozilla's "Modern" + "Intermediate" recipes:
+  #   https://wiki.mozilla.org/Security/Server_Side_TLS
+
+  options:
+
+    # ---- DEFAULT (applied to every router that doesn't set tls.options)
+    # Conservative-but-modern: TLS 1.2 minimum, intermediate ciphers,
+    # works with all browsers from ~2018+. Use this for public sites.
+    default:
+      minVersion: VersionTLS12
+      sniStrict: true
+      cipherSuites:
+        # TLS 1.3 ciphers are negotiated automatically (not listed here)
+        # TLS 1.2 cipher whitelist:
+        - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+        - TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
+        - TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305
+      curvePreferences:
+        - X25519
+        - secp521r1
+        - secp384r1
+        - secp256r1
+      alpnProtocols:
+        - h2
+        - http/1.1
+
+    # ---- MODERN -- TLS 1.3 only, no legacy clients
+    # Use for admin surfaces (dashboard, Grafana, Prometheus).
+    modern:
+      minVersion: VersionTLS13
+      sniStrict: true
+      curvePreferences:
+        - X25519
+        - secp384r1
+      alpnProtocols:
+        - h2
+        - http/1.1
+
+    # ---- mTLS example (commented out)
+    # Use for backend-only routers that should only be reachable by
+    # clients holding a certificate signed by your private CA. Drop the
+    # CA bundle into config/certs/static/ca.pem and uncomment.
+    #
+    # mtls:
+    #   minVersion: VersionTLS13
+    #   clientAuth:
+    #     caFiles:
+    #       - /etc/traefik/certs/static/ca.pem
+    #     clientAuthType: RequireAndVerifyClientCert
+
+
+  # -------------------------------------------------------------------------
+  # Manual certificates (bring-your-own)
+  # -------------------------------------------------------------------------
+  # Drop your *.crt + *.key into config/certs/static/, then list each
+  # pair below. Traefik picks the right cert per host based on the SNI
+  # in the TLS handshake (matches the cert's SAN / CN).
+  #
+  # Use cases:
+  #   - Wildcard certs from your corporate CA
+  #   - EV / OV certs purchased from a commercial CA
+  #   - Internal-only domains where Let's Encrypt doesn't apply
+  #
+  # Example (uncomment + adjust):
+  # certificates:
+  #   - certFile: /etc/traefik/certs/static/example.com.crt
+  #     keyFile:  /etc/traefik/certs/static/example.com.key
+  #     stores:
+  #       - default
+  #
+  #   - certFile: /etc/traefik/certs/static/wildcard.bauer-group.com.crt
+  #     keyFile:  /etc/traefik/certs/static/wildcard.bauer-group.com.key
+  #     stores:
+  #       - default
+
+  certificates: []
+
+
+  # -------------------------------------------------------------------------
+  # Default certificate (TLS handshake fallback)
+  # -------------------------------------------------------------------------
+  # Cert returned to clients that connect with an unknown SNI (or no SNI
+  # at all). Common on the public internet from misconfigured probes.
+  # Without this, Traefik returns its built-in TRAEFIK DEFAULT CERT
+  # which scares any TLS scanner. Provide a self-signed bind cert here.
+  #
+  # stores:
+  #   default:
+  #     defaultCertificate:
+  #       certFile: /etc/traefik/certs/static/default.crt
+  #       keyFile:  /etc/traefik/certs/static/default.key

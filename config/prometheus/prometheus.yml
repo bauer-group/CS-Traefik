@@ -1,0 +1,83 @@
+# =============================================================================
+# Prometheus - Scrape Configuration
+# =============================================================================
+# Reference: https://prometheus.io/docs/prometheus/latest/configuration/configuration/
+# =============================================================================
+
+global:
+  scrape_interval:     15s   # default for all jobs unless overridden
+  evaluation_interval: 15s
+  scrape_timeout:      10s
+  external_labels:
+    stack: edgeproxy
+    monitor: cs-traefik
+
+# -----------------------------------------------------------------------------
+# Alerting
+# -----------------------------------------------------------------------------
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# Rules files (relative to /etc/prometheus inside the container)
+rule_files:
+  - "alerts.yml"
+
+# -----------------------------------------------------------------------------
+# Scrape configs
+# -----------------------------------------------------------------------------
+# All targets resolve via Docker DNS on the proxy-internal network.
+# Container hostname == service name in compose.
+scrape_configs:
+
+  # Prometheus scrapes itself
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: prometheus
+
+  # Traefik metrics endpoint (entryPoints.metrics in traefik.yml)
+  - job_name: traefik
+    static_configs:
+      - targets: ["traefik:9100"]
+        labels:
+          service: traefik
+
+  # Host-level metrics (CPU, memory, disk, network, ...)
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          service: node-exporter
+
+  # Container-level metrics (per-container CPU/memory/network/IO)
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+        labels:
+          service: cadvisor
+
+  # Loki self-metrics
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+        labels:
+          service: loki
+
+  # Grafana self-metrics
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+        labels:
+          service: grafana
+    metrics_path: /metrics
+
+  # Alertmanager self-metrics
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+        labels:
+          service: alertmanager

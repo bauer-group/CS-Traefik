@@ -1,0 +1,142 @@
+# =============================================================================
+# Traefik v3 - Dynamic Middlewares (file provider)
+# =============================================================================
+# Reusable middlewares used across all routers. Reference from container
+# labels with the `@file` suffix:
+#   traefik.http.routers.foo.middlewares=public-chain@file
+#
+# Note: dashboard-specific middlewares (auth, IP whitelist) live in
+# docker-compose.yml as labels on the traefik service. They depend on
+# .env values (DASHBOARD_USERS, DASHBOARD_WHITELIST) which Compose
+# substitutes natively. Keeping them there means one source of truth.
+# =============================================================================
+
+http:
+
+  middlewares:
+
+    # -------------------------------------------------------------------------
+    # Security headers (modern best practice for HTTPS sites)
+    # -------------------------------------------------------------------------
+    # Apply to every public-facing router. Tightens response headers per
+    # OWASP Secure Headers Project recommendations.
+    secure-headers:
+      headers:
+        # HSTS -- 2 years, all subdomains, preload-eligible.
+        # Only enable preload after your domain is on the HSTS preload list.
+        stsSeconds: 63072000
+        stsIncludeSubdomains: true
+        stsPreload: false
+        forceSTSHeader: true
+
+        # Clickjacking protection.
+        frameDeny: true
+
+        # MIME-sniffing protection.
+        contentTypeNosniff: true
+
+        # Modern XSS protection (legacy X-Xss-Protection was deprecated --
+        # browsers ignore it; CSP is the real defense).
+        browserXssFilter: true
+
+        # Referrer policy.
+        referrerPolicy: "strict-origin-when-cross-origin"
+
+        # Permissions policy -- deny powerful APIs by default.
+        permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=()"
+
+        # Custom headers.
+        customResponseHeaders:
+          X-Solution-Provider:    "BAUER GROUP"
+          X-Robots-Tag:           "noindex, nofollow"
+          Server:                 ""               # erase upstream Server hdr
+          X-Powered-By:           ""
+
+        customRequestHeaders:
+          X-Solution-Provider:    "BAUER GROUP"
+
+
+    # -------------------------------------------------------------------------
+    # CSP (Content Security Policy) -- placeholder, opt-in per route
+    # -------------------------------------------------------------------------
+    # CSP must match your app's exact resource origins; a one-size policy
+    # breaks most apps. Reference per-route from app compose labels, or
+    # extend with project-specific policies.
+    csp-strict:
+      headers:
+        contentSecurityPolicy: >-
+          default-src 'self';
+          script-src 'self';
+          style-src 'self' 'unsafe-inline';
+          img-src 'self' data:;
+          font-src 'self' data:;
+          object-src 'none';
+          base-uri 'self';
+          frame-ancestors 'none';
+
+
+    # -------------------------------------------------------------------------
+    # Compression (HTTP response gzip / brotli / zstd)
+    # -------------------------------------------------------------------------
+    compression:
+      compress:
+        excludedContentTypes:
+          - text/event-stream    # SSE must not be buffered/compressed
+        minResponseBodyBytes: 1024
+
+
+    # -------------------------------------------------------------------------
+    # Rate limiting -- baseline (1000 req/s avg, 2000 burst, per IP)
+    # -------------------------------------------------------------------------
+    rate-limit:
+      rateLimit:
+        average: 1000
+        burst: 2000
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1   # trust first proxy (Traefik itself)
+
+
+    # -------------------------------------------------------------------------
+    # Rate limiting -- strict (admin / login surfaces)
+    # -------------------------------------------------------------------------
+    rate-limit-strict:
+      rateLimit:
+        average: 10
+        burst: 20
+        period: 1s
+
+
+    # -------------------------------------------------------------------------
+    # Strip the Authorization header before forwarding to backends
+    # -------------------------------------------------------------------------
+    # Useful when BasicAuth is used at the edge but the upstream service
+    # doesn't expect (and might mishandle) an Authorization header.
+    strip-auth:
+      headers:
+        customRequestHeaders:
+          Authorization: ""
+
+
+    # -------------------------------------------------------------------------
+    # Force HTTPS scheme (helper)
+    # -------------------------------------------------------------------------
+    https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+
+    # -------------------------------------------------------------------------
+    # Public-app middleware chain
+    # -------------------------------------------------------------------------
+    # Apply to every standard public-facing app router. Reference from
+    # container labels:
+    #   traefik.http.routers.<name>.middlewares=public-chain@file
+    public-chain:
+      chain:
+        middlewares:
+          - secure-headers
+          - compression
+          - rate-limit

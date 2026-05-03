@@ -1,0 +1,106 @@
+{
+  "description": "Log explorer for the EDGEPROXY stack -- Traefik access + container logs via Loki.",
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "calculate": false,
+        "cellGap": 1,
+        "color": { "exponent": 0.5, "fill": "dark-orange", "mode": "scheme", "reverse": false, "scale": "exponential", "scheme": "Oranges", "steps": 64 },
+        "exemplars": { "color": "rgba(255, 0, 255, 0.7)" },
+        "filterValues": { "le": 1e-9 },
+        "legend": { "show": true },
+        "rowsFrame": { "layout": "auto" },
+        "tooltip": { "mode": "single", "showColorScale": false, "yHistogram": false },
+        "yAxis": { "axisPlacement": "left", "reverse": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "editorMode": "code",
+          "expr": "sum(count_over_time({stack=~\"$stack\", container=~\"$container\"} |~ \"$search\" [1m])) by (container)",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Log Volume (per minute, by container)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 22, "w": 24, "x": 0, "y": 6 },
+      "id": 2,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "loki" },
+          "editorMode": "code",
+          "expr": "{stack=~\"$stack\", container=~\"$container\"} |~ \"$search\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Logs",
+      "type": "logs"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["edgeproxy", "logs", "loki"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "edgeproxy", "value": "edgeproxy" },
+        "datasource": { "type": "loki", "uid": "loki" },
+        "definition": "label_values(stack)",
+        "label": "Stack",
+        "multi": false,
+        "name": "stack",
+        "options": [],
+        "query": "label_values(stack)",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "loki", "uid": "loki" },
+        "definition": "label_values({stack=\"$stack\"}, container)",
+        "includeAll": true,
+        "label": "Container",
+        "multi": true,
+        "name": "container",
+        "options": [],
+        "query": "label_values({stack=\"$stack\"}, container)",
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      },
+      {
+        "current": { "selected": false, "text": "", "value": "" },
+        "label": "Search",
+        "name": "search",
+        "options": [{ "selected": true, "text": "", "value": "" }],
+        "query": "",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": { "from": "now-30m", "to": "now" },
+  "title": "EDGEPROXY -- Logs Explorer",
+  "uid": "edgeproxy-logs",
+  "version": 1
+}

@@ -1,0 +1,236 @@
+# =============================================================================
+# Traefik v3 - Static Configuration
+# =============================================================================
+# Reference: https://doc.traefik.io/traefik/reference/static-configuration/file/
+#
+# Static config = settings Traefik reads ONCE at startup. Routing rules,
+# middlewares, and TLS options are dynamic -- those live in
+# config/traefik/dynamic/*.yml and reload on change.
+#
+# Environment expansion: Traefik v3 resolves ${VAR:-default} from the
+# container's env (passed in via docker-compose.yml) when loading this file.
+# =============================================================================
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+
+# -----------------------------------------------------------------------------
+# Logging
+# -----------------------------------------------------------------------------
+log:
+  level: "${LOG_LEVEL:-INFO}"
+  format: json
+  filePath: /var/log/traefik/traefik.log
+  noColor: true
+  maxSize: 50
+  maxBackups: 5
+  maxAge: 7
+  compress: true
+
+accessLog:
+  filePath: /var/log/traefik/access.log
+  format: "${ACCESS_LOG_FORMAT:-json}"
+  bufferingSize: 100
+  filters:
+    statusCodes:
+      - "400-599"
+    retryAttempts: true
+    minDuration: 10ms
+  fields:
+    defaultMode: keep
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent:        keep
+        Authorization:     drop
+        Cookie:            drop
+        Set-Cookie:        drop
+        X-Forwarded-For:   keep
+        X-Real-Ip:         keep
+        Content-Type:      keep
+        Referer:           keep
+
+
+# -----------------------------------------------------------------------------
+# API + dashboard
+# -----------------------------------------------------------------------------
+# Dashboard is exposed via the dashboard router (compose labels) -- it
+# is NOT served on a separate insecure port. `insecure: false` ensures
+# api@internal can only be reached through routed + auth-gated traffic.
+api:
+  dashboard: true
+  insecure: false
+  debug: false
+
+
+# -----------------------------------------------------------------------------
+# Ping (healthcheck endpoint -- consumed by container HEALTHCHECK)
+# -----------------------------------------------------------------------------
+ping:
+  entryPoint: ping
+  manualRouting: false
+
+
+# -----------------------------------------------------------------------------
+# Entry points
+# -----------------------------------------------------------------------------
+# web        -> public HTTP  (port 80,  redirects to HTTPS via dynamic config)
+# websecure  -> public HTTPS (port 443, with HTTP/3 / QUIC over UDP/443)
+# metrics    -> internal-only, scraped by Prometheus
+# ping       -> internal-only, container healthcheck
+entryPoints:
+
+  web:
+    address: ":80/tcp"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        writeTimeout: 60s
+        idleTimeout: 180s
+
+  websecure:
+    address: ":443/tcp"
+    http:
+      tls:
+        certResolver: letsencrypt
+    http3:
+      advertisedPort: 443
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        writeTimeout: 60s
+        idleTimeout: 180s
+
+  metrics:
+    address: ":9100/tcp"
+
+  ping:
+    address: ":8082/tcp"
+
+
+# -----------------------------------------------------------------------------
+# Providers
+# -----------------------------------------------------------------------------
+# Traefik discovers services from two sources:
+#   docker -> container labels (most app stacks)
+#   file   -> dynamic/*.yml (manual TLS, certs, middlewares, custom routers)
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    network: "${NETWORK_NAME:-EDGEPROXY}"
+    exposedByDefault: false
+    watch: true
+    allowEmptyServices: false
+
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+
+# -----------------------------------------------------------------------------
+# Certificate resolvers
+# -----------------------------------------------------------------------------
+# Three resolvers are pre-configured. Pick whichever fits the deployment:
+#
+#   letsencrypt          -> production ACME with TLS-ALPN-01 challenge
+#                           (works on port 443; the default).
+#
+#   letsencrypt-http     -> production ACME with HTTP-01 challenge
+#                           (works on port 80; useful when port 443 is
+#                           proxied / not directly reachable).
+#
+#   letsencrypt-staging  -> ACME staging endpoint (testing, no rate-limit
+#                           pain). Use during the initial roll-out, then
+#                           switch to `letsencrypt`.
+#
+# DNS-01 (wildcard certs, behind-firewall hosts) is configured per
+# provider via env vars + a custom resolver -- see the example block below.
+# Routers select a resolver via Traefik labels:
+#   traefik.http.routers.foo.tls.certresolver=letsencrypt-staging
+certificatesResolvers:
+
+  letsencrypt:
+    acme:
+      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
+      storage: /etc/traefik/certs/acme/letsencrypt.json
+      keyType: EC256
+      tlsChallenge: {}
+
+  letsencrypt-http:
+    acme:
+      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
+      storage: /etc/traefik/certs/acme/letsencrypt-http.json
+      keyType: EC256
+      httpChallenge:
+        entryPoint: web
+
+  letsencrypt-staging:
+    acme:
+      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+      storage: /etc/traefik/certs/acme/letsencrypt-staging.json
+      keyType: EC256
+      tlsChallenge: {}
+
+  # ---- DNS-01 example (wildcards / firewalled hosts) ----
+  # Uncomment + adjust the provider block. Provider credentials are passed
+  # as additional env vars in .env (CF_DNS_API_TOKEN for Cloudflare,
+  # AWS_ACCESS_KEY_ID for Route53, HETZNER_API_KEY for Hetzner, etc.).
+  # Reference: https://doc.traefik.io/traefik/https/acme/#providers
+  #
+  # letsencrypt-dns:
+  #   acme:
+  #     email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+  #     caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
+  #     storage: /etc/traefik/certs/acme/letsencrypt-dns.json
+  #     keyType: EC256
+  #     dnsChallenge:
+  #       provider: cloudflare
+  #       resolvers:
+  #         - "1.1.1.1:53"
+  #         - "8.8.8.8:53"
+  #       delayBeforeCheck: 10s
+
+
+# -----------------------------------------------------------------------------
+# Metrics (Prometheus)
+# -----------------------------------------------------------------------------
+# Exposed on the `metrics` entry point. The monitoring profile attaches
+# Prometheus to the proxy-internal network so it can scrape :9100 without
+# the metrics port being publicly reachable.
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+    buckets:
+      - 0.005
+      - 0.01
+      - 0.025
+      - 0.05
+      - 0.1
+      - 0.25
+      - 0.5
+      - 1.0
+      - 2.5
+      - 5.0
+      - 10.0
+    manualRouting: false
+
+
+# -----------------------------------------------------------------------------
+# Experimental features
+# -----------------------------------------------------------------------------
+experimental:
+  plugins: {}

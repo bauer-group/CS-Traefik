@@ -1,0 +1,122 @@
+# =============================================================================
+# Promtail - Log Shipper Configuration
+# =============================================================================
+# Reads logs from two sources:
+#   1. Docker container logs (json-file driver) -- /var/lib/docker/containers
+#   2. Traefik file logs (access.log + traefik.log) -- /var/log/traefik
+#
+# Logs flow: source -> Promtail (parse + label) -> Loki (store + index)
+# Reference: https://grafana.com/docs/loki/latest/send-data/promtail/configuration/
+# =============================================================================
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+  log_level: info
+
+# Position file -- Promtail resumes from the last byte read after a restart.
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+# Where the parsed log entries land.
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+
+  # ---------------------------------------------------------------------------
+  # Docker container logs
+  # ---------------------------------------------------------------------------
+  # Discovers every container on the host via the Docker API (read-only
+  # socket). Labels are derived from container metadata so Grafana queries
+  # like {container="traefik"} work out of the box.
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: "container"
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: "stream"
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: "service"
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_project"]
+        target_label: "project"
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_project"]
+        target_label: "stack"
+    pipeline_stages:
+      # Try to parse each line as JSON -- works for Traefik, Grafana, Loki,
+      # and most modern log producers. Plain-text lines pass through.
+      - json:
+          expressions:
+            level:    level
+            ts:       time
+            msg:      msg
+      - labels:
+          level:
+      - timestamp:
+          source: ts
+          format: RFC3339Nano
+          fallback_formats:
+            - RFC3339
+            - "2006-01-02T15:04:05Z07:00"
+            - UnixMs
+            - Unix
+
+  # ---------------------------------------------------------------------------
+  # Traefik file logs (access.log + traefik.log)
+  # ---------------------------------------------------------------------------
+  # Read directly from the bind-mounted log directory. Adds parsed labels
+  # (status, method, host, ...) so dashboards can slice by request type.
+  - job_name: traefik-access
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: traefik
+          source: access
+          __path__: /var/log/traefik/access.log
+    pipeline_stages:
+      - json:
+          expressions:
+            ClientHost:        ClientHost
+            DownstreamStatus:  DownstreamStatus
+            Duration:          Duration
+            RequestHost:       RequestHost
+            RequestMethod:     RequestMethod
+            RequestPath:       RequestPath
+            RouterName:        RouterName
+            ServiceName:       ServiceName
+            StartUTC:          StartUTC
+      - labels:
+          status: DownstreamStatus
+          method: RequestMethod
+          host:   RequestHost
+          router: RouterName
+      - timestamp:
+          source: StartUTC
+          format: RFC3339Nano
+          fallback_formats:
+            - RFC3339
+
+  - job_name: traefik-server
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: traefik
+          source: traefik
+          __path__: /var/log/traefik/traefik.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level:  level
+            ts:     time
+            msg:    msg
+      - labels:
+          level:
+      - timestamp:
+          source: ts
+          format: RFC3339Nano
+          fallback_formats:
+            - RFC3339

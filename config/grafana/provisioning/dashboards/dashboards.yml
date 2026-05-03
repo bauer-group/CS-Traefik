@@ -1,0 +1,24 @@
+# =============================================================================
+# Grafana - Dashboard Provisioning
+# =============================================================================
+# Reference: https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards
+#
+# All JSON dashboards in /var/lib/grafana/dashboards (read from
+# config/grafana/dashboards/) are loaded into Grafana at startup and
+# refreshed every 30s. Folder hierarchy under dashboards/ becomes the
+# folder hierarchy in Grafana's UI.
+# =============================================================================
+
+apiVersion: 1
+
+providers:
+
+  - name: edgeproxy
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

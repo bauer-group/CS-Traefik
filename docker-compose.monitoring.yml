@@ -1,0 +1,389 @@
+# =============================================================================
+# CS-Traefik - Monitoring Profile Overlay
+# =============================================================================
+# Activates a modern observability stack alongside the core Traefik.
+# Brings up:
+#   - Prometheus      (metrics TSDB + scrape engine)
+#   - Grafana         (visualisation, with pre-provisioned dashboards)
+#   - Loki            (log aggregator)
+#   - Promtail        (log shipper -- reads container + Traefik file logs)
+#   - Alertmanager    (alert routing for Prometheus)
+#   - node-exporter   (host-level metrics)
+#   - cAdvisor        (container-level metrics)
+#
+# Activate via:
+#   COMPOSE_PROFILES=monitoring
+# (and let traefik.sh wire the right `-f` flags) or directly:
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Prometheus -- metrics TSDB + scraper
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-edgeproxy}-prometheus
+    hostname: prometheus
+    restart: unless-stopped
+    profiles: [monitoring]
+    user: "65534:65534"  # nobody:nogroup -- non-root by design
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}"
+      - "--storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-8GB}"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"            # enables `kill -HUP` reloads
+      - "--web.enable-remote-write-receiver"
+      - "--web.external-url=https://${PROMETHEUS_HOST:-prometheus.example.com}"
+    environment:
+      TZ: ${TIME_ZONE:-Etc/UTC}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+      traefik.enable: "true"
+      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-internal"
+
+      traefik.http.routers.prometheus.rule: "Host(`${PROMETHEUS_HOST:-prometheus.example.com}`)"
+      traefik.http.routers.prometheus.entrypoints: "websecure"
+      traefik.http.routers.prometheus.service: "prometheus"
+      traefik.http.routers.prometheus.tls: "true"
+      traefik.http.routers.prometheus.tls.certresolver: "letsencrypt"
+      traefik.http.routers.prometheus.middlewares: "dashboard-whitelist@docker,dashboard-auth@docker,rate-limit-strict@file,secure-headers@file,strip-auth@file"
+      traefik.http.services.prometheus.loadbalancer.server.port: "9090"
+    volumes:
+      - ./config/prometheus:/etc/prometheus:ro
+      - ${DATA_DIRECTORY:-./data}/prometheus:/prometheus:rw
+    networks:
+      proxy:
+      proxy-internal:
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "${PROMETHEUS_CPU_LIMIT:-2}"
+          memory: ${PROMETHEUS_MEMORY_LIMIT:-2g}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-50m}
+        max-file: "${LOG_MAX_FILE:-5}"
+
+  # ---------------------------------------------------------------------------
+  # Grafana -- visualisation
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:${GRAFANA_IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-edgeproxy}-grafana
+    hostname: grafana
+    restart: unless-stopped
+    profiles: [monitoring]
+    user: "472:472"   # grafana official user
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: ${TIME_ZONE:-Etc/UTC}
+
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
+      GF_SECURITY_ALLOW_EMBEDDING: "false"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SAMESITE: "strict"
+      GF_SECURITY_STRICT_TRANSPORT_SECURITY: "true"
+
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_BASIC_ENABLED: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+
+      GF_SERVER_ROOT_URL: "https://${GRAFANA_HOST:-grafana.example.com}"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "false"
+
+      # Anti-feature toggles -- no telemetry, no news feed, no plugin store
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_FEEDBACK_LINKS_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+
+      GF_INSTALL_PLUGINS: ${GRAFANA_PLUGINS:-}
+
+      GF_LOG_MODE: "console"
+      GF_LOG_LEVEL: "info"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+      traefik.enable: "true"
+      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-internal"
+
+      traefik.http.routers.grafana.rule: "Host(`${GRAFANA_HOST:-grafana.example.com}`)"
+      traefik.http.routers.grafana.entrypoints: "websecure"
+      traefik.http.routers.grafana.service: "grafana"
+      traefik.http.routers.grafana.tls: "true"
+      traefik.http.routers.grafana.tls.certresolver: "letsencrypt"
+      # Grafana has its own login, so DON'T re-auth at the edge -- only
+      # IP-whitelist + headers + rate-limit. (BasicAuth at the edge would
+      # break OAuth/SSO flows and confuse the login UX.)
+      traefik.http.routers.grafana.middlewares: "dashboard-whitelist@docker,rate-limit-strict@file,secure-headers@file"
+      traefik.http.services.grafana.loadbalancer.server.port: "3000"
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ${DATA_DIRECTORY:-./data}/grafana:/var/lib/grafana:rw
+    networks:
+      proxy:
+      proxy-internal:
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "${GRAFANA_CPU_LIMIT:-1}"
+          memory: ${GRAFANA_MEMORY_LIMIT:-512m}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-50m}
+        max-file: "${LOG_MAX_FILE:-5}"
+
+  # ---------------------------------------------------------------------------
+  # Loki -- log aggregator
+  # ---------------------------------------------------------------------------
+  loki:
+    image: grafana/loki:${LOKI_IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-edgeproxy}-loki
+    hostname: loki
+    restart: unless-stopped
+    profiles: [monitoring]
+    user: "10001:10001"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - "-config.file=/etc/loki/loki-config.yml"
+      - "-config.expand-env=true"
+    environment:
+      TZ: ${TIME_ZONE:-Etc/UTC}
+      LOKI_RETENTION_PERIOD: ${LOKI_RETENTION_PERIOD:-168h}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      # Loki is internal-only; not exposed to the public network. Grafana
+      # and Promtail talk to it directly on the proxy-internal network.
+      traefik.enable: "false"
+    volumes:
+      - ./config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - ${DATA_DIRECTORY:-./data}/loki:/loki:rw
+    networks:
+      proxy-internal:
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "${LOKI_CPU_LIMIT:-1}"
+          memory: ${LOKI_MEMORY_LIMIT:-1g}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-50m}
+        max-file: "${LOG_MAX_FILE:-5}"
+
+  # ---------------------------------------------------------------------------
+  # Promtail -- log shipper (reads docker logs + Traefik file logs)
+  # ---------------------------------------------------------------------------
+  promtail:
+    image: grafana/promtail:${PROMTAIL_IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-edgeproxy}-promtail
+    hostname: promtail
+    restart: unless-stopped
+    profiles: [monitoring]
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - "-config.file=/etc/promtail/promtail-config.yml"
+      - "-config.expand-env=true"
+    environment:
+      TZ: ${TIME_ZONE:-Etc/UTC}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      traefik.enable: "false"
+    volumes:
+      - ./config/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+
+      # Read access to Docker container logs (read-only).
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+
+      # Traefik's own file logs (access + traefik.log).
+      - ${DATA_DIRECTORY:-./data}/traefik/logs:/var/log/traefik:ro
+
+      # Position file (so promtail resumes after a restart).
+      - ${DATA_DIRECTORY:-./data}/promtail:/var/lib/promtail:rw
+    networks:
+      proxy-internal:
+    depends_on:
+      loki:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-50m}
+        max-file: "${LOG_MAX_FILE:-5}"
+
+  # ---------------------------------------------------------------------------
+  # Alertmanager -- alert routing
+  # ---------------------------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:${ALERTMANAGER_IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-edgeproxy}-alertmanager
+    hostname: alertmanager
+    restart: unless-stopped
+    profiles: [monitoring]
+    user: "65534:65534"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=https://${ALERTMANAGER_HOST:-alerts.example.com}"
+    environment:
+      TZ: ${TIME_ZONE:-Etc/UTC}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+      traefik.enable: "true"
+      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-internal"
+
+      traefik.http.routers.alertmanager.rule: "Host(`${ALERTMANAGER_HOST:-alerts.example.com}`)"
+      traefik.http.routers.alertmanager.entrypoints: "websecure"
+      traefik.http.routers.alertmanager.service: "alertmanager"
+      traefik.http.routers.alertmanager.tls: "true"
+      traefik.http.routers.alertmanager.tls.certresolver: "letsencrypt"
+      traefik.http.routers.alertmanager.middlewares: "dashboard-whitelist@docker,dashboard-auth@docker,rate-limit-strict@file,secure-headers@file,strip-auth@file"
+      traefik.http.services.alertmanager.loadbalancer.server.port: "9093"
+    volumes:
+      - ./config/alertmanager:/etc/alertmanager:ro
+      - ${DATA_DIRECTORY:-./data}/alertmanager:/alertmanager:rw
+    networks:
+      proxy:
+      proxy-internal:
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:9093/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-50m}
+        max-file: "${LOG_MAX_FILE:-5}"
+
+  # ---------------------------------------------------------------------------
+  # node-exporter -- host metrics
+  # ---------------------------------------------------------------------------
+  node-exporter:
+    image: prom/node-exporter:${NODE_EXPORTER_IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-edgeproxy}-node-exporter
+    hostname: node-exporter
+    restart: unless-stopped
+    profiles: [monitoring]
+    pid: "host"
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_TIME    # for the time collector (clock skew metric)
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/host/root"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)"
+      - "--collector.netclass.ignored-devices=^(veth.*|cali.*|docker.*|br-.*|lo)$$"
+      - "--collector.netdev.device-exclude=^(veth.*|cali.*|docker.*|br-.*|lo)$$"
+    environment:
+      TZ: ${TIME_ZONE:-Etc/UTC}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      traefik.enable: "false"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    networks:
+      proxy-internal:
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-50m}
+        max-file: "${LOG_MAX_FILE:-5}"
+
+  # ---------------------------------------------------------------------------
+  # cAdvisor -- container metrics
+  # ---------------------------------------------------------------------------
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:${CADVISOR_IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-edgeproxy}-cadvisor
+    hostname: cadvisor
+    restart: unless-stopped
+    profiles: [monitoring]
+    privileged: true   # cgroup access
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    command:
+      - "--housekeeping_interval=15s"
+      - "--docker_only=true"
+      - "--store_container_labels=false"
+      - "--whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service"
+      - "--disable_metrics=accelerator,cpu_topology,disk,memory_numa,tcp,udp,percpu,sched,process,hugetlb,referenced_memory,resctrl,cpuset,advtcp,memory_numa,oom_event"
+    environment:
+      TZ: ${TIME_ZONE:-Etc/UTC}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      traefik.enable: "false"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    networks:
+      proxy-internal:
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-50m}
+        max-file: "${LOG_MAX_FILE:-5}"

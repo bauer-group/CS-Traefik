@@ -1,0 +1,49 @@
+# =============================================================================
+# Grafana - Provisioned Datasources
+# =============================================================================
+# Reference: https://grafana.com/docs/grafana/latest/administration/provisioning/#data-sources
+#
+# Loaded automatically on Grafana startup. Both Prometheus and Loki resolve
+# via Docker DNS on the proxy-internal network.
+# =============================================================================
+
+apiVersion: 1
+
+datasources:
+
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+      queryTimeout: 60s
+      manageAlerts: true
+      prometheusType: Prometheus
+      cacheLevel: High
+      exemplarTraceIdDestinations: []
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxLines: 5000
+      timeout: 60
+      derivedFields: []
+
+  - name: Alertmanager
+    uid: alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    editable: false
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: false

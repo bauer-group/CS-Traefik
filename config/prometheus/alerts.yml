@@ -1,0 +1,149 @@
+# =============================================================================
+# Prometheus - Alert Rules
+# =============================================================================
+# Reference: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+#
+# Alerts fire when the rule's PromQL expression has been true for the
+# `for:` duration. Alertmanager handles routing/notification.
+# =============================================================================
+
+groups:
+
+  # ---------------------------------------------------------------------------
+  # Host-level alerts (node-exporter)
+  # ---------------------------------------------------------------------------
+  - name: host
+    interval: 1m
+    rules:
+
+      - alert: HostHighCpuLoad
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU load on {{ $labels.instance }}"
+          description: "CPU load is above 90% for 10 minutes. Current: {{ $value | humanize }}%."
+
+      - alert: HostMemoryUsageHigh
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory usage > 90% on {{ $labels.instance }}"
+          description: "Free memory below 10% for 10 minutes. Current: {{ $value | humanize }}%."
+
+      - alert: HostDiskSpaceLow
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space low on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Less than 10% free space remaining."
+
+      - alert: HostDiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 < 5
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space critical on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+          description: "Less than 5% free space remaining."
+
+      - alert: HostUnreachable
+        expr: up{job="node-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "node-exporter unreachable on {{ $labels.instance }}"
+          description: "Prometheus has been unable to scrape node-exporter for 2 minutes."
+
+  # ---------------------------------------------------------------------------
+  # Container alerts (cAdvisor)
+  # ---------------------------------------------------------------------------
+  - name: containers
+    interval: 1m
+    rules:
+
+      - alert: ContainerKilled
+        expr: time() - container_last_seen{name!=""} > 60
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} disappeared"
+          description: "Container has not reported metrics in over 60s -- likely killed or crashed."
+
+      - alert: ContainerCpuThrottled
+        expr: rate(container_cpu_cfs_throttled_periods_total{name!=""}[5m]) / rate(container_cpu_cfs_periods_total{name!=""}[5m]) > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} is CPU-throttled"
+          description: "More than 25% of CPU periods are throttled. Increase CPU limit or investigate."
+
+      - alert: ContainerMemoryNearLimit
+        expr: (container_memory_working_set_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""} > 0.9) and (container_spec_memory_limit_bytes{name!=""} > 0)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} near its memory limit"
+          description: "Container working set is at {{ $value | humanize }}% of its memory limit."
+
+  # ---------------------------------------------------------------------------
+  # Traefik alerts
+  # ---------------------------------------------------------------------------
+  - name: traefik
+    interval: 30s
+    rules:
+
+      - alert: TraefikDown
+        expr: up{job="traefik"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Traefik is down"
+          description: "Prometheus has been unable to scrape Traefik for 2 minutes -- the edge proxy may be offline."
+
+      - alert: TraefikHighHttp5xxRate
+        expr: |
+          (
+            sum(rate(traefik_service_requests_total{code=~"5.."}[5m]))
+            /
+            sum(rate(traefik_service_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Traefik 5xx rate above 5%"
+          description: "More than 5% of upstream responses are 5xx. Backend health check needed."
+
+      - alert: TraefikHighHttp4xxRate
+        expr: |
+          (
+            sum(rate(traefik_service_requests_total{code=~"4.."}[5m]))
+            /
+            sum(rate(traefik_service_requests_total[5m]))
+          ) > 0.30
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "Traefik 4xx rate above 30%"
+          description: "Possible misconfigured client / scanner / probing activity."
+
+      - alert: TraefikCertExpiringSoon
+        expr: traefik_tls_certs_not_after - time() < 14 * 24 * 60 * 60
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS cert {{ $labels.cn }} expires in less than 14 days"
+          description: "Let's Encrypt should auto-renew at 30 days; if this fires, check the ACME log."
