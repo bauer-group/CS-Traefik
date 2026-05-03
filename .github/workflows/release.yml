@@ -1,0 +1,65 @@
+name: 🚀 Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.github/**'
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'NOTICE.md'
+  workflow_dispatch:
+    inputs:
+      force-release:
+        description: 'force create release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  # ============================================
+  # Validation Jobs
+  # ============================================
+
+  # Validates docker-compose.yml standalone. The two overlay files
+  # (docker-compose.monitoring.yml, docker-compose.auto-update.yml) are
+  # NOT standalone-valid -- they reference networks (`proxy`,
+  # `proxy-internal`) defined in the core compose. They get validated
+  # implicitly whenever they're loaded together with the core via
+  # `docker compose -f docker-compose.yml -f docker-compose.X.yml`.
+  validate-compose:
+    name: 🔍 Validate Docker Compose
+    uses: bauer-group/automation-templates/.github/workflows/modules-validate-compose.yml@main
+    with:
+      compose-files: '["docker-compose.yml"]'
+      env-file: '.env.example'
+
+  validate-scripts:
+    name: 🔍 Validate Shell Scripts
+    uses: bauer-group/automation-templates/.github/workflows/modules-validate-shellscript.yml@main
+    with:
+      scan-directory: '.'
+      severity: 'error'
+
+  # ============================================
+  # Release Job (only on main branch push)
+  # ============================================
+
+  release:
+    name: 📦 Create Semantic Release
+    needs: [validate-compose, validate-scripts]
+    if: |
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.validate-compose.result == 'success' &&
+      needs.validate-scripts.result == 'success'
+    uses: bauer-group/automation-templates/.github/workflows/modules-semantic-release.yml@main
+    with:
+      target-branch: 'main'
+      dry-run: false
+      force-release: ${{ inputs.force-release || false }}
+    secrets: inherit
