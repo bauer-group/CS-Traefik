@@ -106,9 +106,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    # NO `deploy.resources.limits`. A throttled Prometheus drops scrape
-    # windows -> blind spots in the metrics. A throttled / OOM'd
-    # Prometheus is worse than no Prometheus.
+    # Resource cap. Generous defaults so normal load never hits them; the
+    # cap exists to prevent cardinality-explosion (a label leak that
+    # creates millions of series) from eating the entire host. With
+    # `mode: non-blocking` logging in place, a throttled / OOM'd
+    # Prometheus cannot cascade into Traefik request handling -- worst
+    # case is a metrics gap until restart.
+    deploy:
+      resources:
+        limits:
+          cpus: "${PROMETHEUS_CPU_LIMIT:-4}"
+          memory: ${PROMETHEUS_MEMORY_LIMIT:-4g}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -193,9 +201,14 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
-    # NO `deploy.resources.limits`. Grafana under load (large dashboard
-    # + many concurrent viewers) wants headroom; capping it just makes
-    # dashboards slow.
+    # Resource cap. Grafana is mostly query-proxy + render -- caps
+    # prevent a runaway dashboard plugin / leaked auth session from
+    # eating the host. Defaults are headroom-y for typical use.
+    deploy:
+      resources:
+        limits:
+          cpus: "${GRAFANA_CPU_LIMIT:-2}"
+          memory: ${GRAFANA_MEMORY_LIMIT:-1g}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -232,12 +245,16 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
-    # NO `deploy.resources.limits`. CRITICAL for the log path: a
-    # throttled Loki backpressures Promtail -> Promtail buffers fill
-    # -> Promtail stops reading from /var/lib/docker/containers ->
-    # Docker json-file driver buffers fill -> writes to stdout block
-    # in EVERY container on the host -- including Traefik. Domino.
-    # Let Loki use whatever the host can give it.
+    # Resource cap. Safe to apply now that all services run the json-
+    # file driver with `mode: non-blocking` -- a throttled / OOM'd Loki
+    # can no longer cascade into stdout-write blocks in other containers.
+    # Defaults are sized for modest single-host log volumes (~10 MB/min);
+    # raise if you ingest higher rates.
+    deploy:
+      resources:
+        limits:
+          cpus: "${LOKI_CPU_LIMIT:-2}"
+          memory: ${LOKI_MEMORY_LIMIT:-2g}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -271,6 +288,14 @@ services:
     depends_on:
       loki:
         condition: service_healthy
+    # Resource cap. Promtail is lightweight by design but a parser bug
+    # or a label-cardinality-heavy regex can spike CPU. Cap is generous
+    # enough that legitimate log spikes pass through without drops.
+    deploy:
+      resources:
+        limits:
+          cpus: "${PROMTAIL_CPU_LIMIT:-1}"
+          memory: ${PROMTAIL_MEMORY_LIMIT:-512m}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -324,6 +349,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    # Resource cap. Alertmanager is tiny in steady state -- caps are
+    # for defence against alert-storm or templating-loop bugs.
+    deploy:
+      resources:
+        limits:
+          cpus: "${ALERTMANAGER_CPU_LIMIT:-1}"
+          memory: ${ALERTMANAGER_MEMORY_LIMIT:-256m}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -360,6 +392,14 @@ services:
       - /:/host/root:ro,rslave
     networks:
       proxy-internal:
+    # Resource cap. node-exporter is tiny -- 50-100 MB resident, scrape
+    # bursts are short. Caps are belt-and-suspenders against a buggy
+    # collector blowing up.
+    deploy:
+      resources:
+        limits:
+          cpus: "${NODE_EXPORTER_CPU_LIMIT:-1}"
+          memory: ${NODE_EXPORTER_MEMORY_LIMIT:-128m}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -394,4 +434,13 @@ services:
       - /etc/machine-id:/etc/machine-id:ro
     networks:
       proxy-internal:
+    # Resource cap. cAdvisor can spike on heavy container churn (lots
+    # of short-lived containers being created/destroyed). Cap is sized
+    # for typical edge-proxy hosts; raise if you run high-churn CI/CD
+    # build agents on the same host.
+    deploy:
+      resources:
+        limits:
+          cpus: "${CADVISOR_CPU_LIMIT:-1}"
+          memory: ${CADVISOR_MEMORY_LIMIT:-512m}
     logging: *default-logging

@@ -66,4 +66,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       proxy-internal:
+    # Resource cap. Watchtower idles between scheduled runs and only
+    # spikes briefly during pulls. Tiny cap is fine.
+    deploy:
+      resources:
+        limits:
+          cpus: "${WATCHTOWER_CPU_LIMIT:-1}"
+          memory: ${WATCHTOWER_MEMORY_LIMIT:-256m}
     logging: *default-logging

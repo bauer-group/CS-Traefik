@@ -545,21 +545,21 @@ LOG_MAX_FILE=5            # rotation: max number of rotated files
 
 ## Resource limits
 
-**No `deploy.resources.limits` are set on any service by default.**
-This is intentional, not an oversight.
+**Asymmetric policy**: Traefik is uncapped, helpers are capped. The
+two cases have different risk profiles:
 
-- **Traefik** is the single hot path for every ingress request. Capping
-  its CPU triggers Linux CFS throttling — 100 ms freezes that look like
-  502s / timeouts to clients even when the host has idle headroom.
-- **Loki + Promtail** throttling backpressures the Docker json-file log
-  driver. When Loki can't keep up, Promtail stops reading container
-  stdout, then writes from EVERY container block — including Traefik.
-- **Prometheus** throttling drops scrape windows, leaving metric blind
-  spots exactly when you need them most.
+### Traefik — uncapped
 
-If you genuinely need caps (multi-tenant host, hard regulatory ceiling,
-known-bad workload), add them via a `docker-compose.override.yml` at
-the repo root — Compose merges it automatically with no extra flags:
+The edge proxy is the single hot path for every ingress request.
+Capping its CPU triggers Linux CFS throttling — 100 ms freezes that
+look like 502s / timeouts to clients even when the host has idle
+headroom. There is no shipper or buffer in front of request handling,
+so a throttled Traefik directly translates to user-visible latency.
+
+If you really need to cap Traefik (multi-tenant Docker host,
+regulatory ceiling, known-bad upstream that floods you), add a
+`docker-compose.override.yml` at the repo root — Compose merges it
+automatically:
 
 ```yaml
 # docker-compose.override.yml
@@ -568,12 +568,37 @@ services:
     deploy:
       resources:
         limits:
-          cpus:   "4"
-          memory: 2g
+          cpus:   "8"
+          memory: 4g
 ```
 
-This way the limits are visibly your decision, not a hidden default
+This way the limit is visibly your decision, not a hidden default
 working against you.
+
+### Helpers — capped, with non-blocking logging as safety net
+
+Prometheus, Grafana, Loki, Promtail, Alertmanager, node-exporter,
+cAdvisor, and Watchtower all have realistic resource caps. The
+`mode: non-blocking` json-file driver (see [Logging](#logging-never-blocks-the-application))
+means a throttled / OOM'd helper **cannot cascade** into Traefik
+request handling — worst case is a metric / log gap until the helper
+restarts.
+
+Caps protect the host against runaway scenarios:
+
+| Service       | Default cap     | Protects against                            |
+| ------------- | --------------- | ------------------------------------------- |
+| Prometheus    | 4 CPU / 4 GB    | Cardinality explosion (label leak)          |
+| Grafana       | 2 CPU / 1 GB    | Plugin memory leak, dashboard render storm  |
+| Loki          | 2 CPU / 2 GB    | Ingestion spike from a misconfigured app    |
+| Promtail      | 1 CPU / 512 MB  | Regex storm, parser bug                     |
+| Alertmanager  | 1 CPU / 256 MB  | Alert-storm / templating-loop               |
+| node-exporter | 1 CPU / 128 MB  | Buggy collector blowing up                  |
+| cAdvisor      | 1 CPU / 512 MB  | Heavy container churn                       |
+| Watchtower    | 1 CPU / 256 MB  | Pull-storm during scheduled run             |
+
+All values are tunable via `*_CPU_LIMIT` / `*_MEMORY_LIMIT` in `.env`.
+Defaults are headroom-y enough that normal operation never hits them.
 
 ---
 

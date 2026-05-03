@@ -101,14 +101,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
   read-only Docker socket on Traefik. Healthchecks on every service.
   Structured JSON logs, container-level rotation (50m × 5).
 
-* **NO `deploy.resources.limits` on the shipped services.** Capping the
-  edge proxy triggers Linux CFS throttling under load (100ms freezes
-  manifesting as 502s / timeouts). Capping the log pipeline (Loki /
-  Promtail) backpressures the Docker json-file driver, which blocks
-  stdout writes in every container that ships logs -- including
-  Traefik. Caps belong in a per-host `docker-compose.override.yml`
-  when explicitly needed (multi-tenant Docker host, regulatory limit),
-  not as a hidden default that bottlenecks everyone.
+* **Asymmetric resource-limit policy** -- Traefik uncapped, helpers
+  capped with realistic defaults:
+  * **Traefik**: NO `deploy.resources.limits`. Capping the edge proxy
+    triggers Linux CFS throttling under load (100ms freezes
+    manifesting as 502s / timeouts). Override via
+    `docker-compose.override.yml` only when explicitly needed.
+  * **Helpers** (Prometheus, Grafana, Loki, Promtail, Alertmanager,
+    node-exporter, cAdvisor, Watchtower): capped with headroom-y
+    defaults sized for typical BG single-host deployments. Caps
+    protect the host against runaway scenarios (cardinality
+    explosion, plugin memory leak, ingestion spike, container
+    churn, ...).
+  * Helper caps are SAFE because the `mode: non-blocking` json-file
+    driver decouples log writes from the application -- a throttled
+    or OOM'd helper cannot cascade into Traefik request handling.
+    Worst case is a metric / log gap until restart.
+  * All values tunable via `*_CPU_LIMIT` / `*_MEMORY_LIMIT` in `.env`.
 
 * **`mode: non-blocking` json-file driver on every service** with a 4 MB
   per-container ring buffer (`LOG_MAX_BUFFER_SIZE`). CRITICAL
