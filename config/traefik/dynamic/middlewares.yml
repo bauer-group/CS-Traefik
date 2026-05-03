@@ -152,23 +152,62 @@ http:
 
 
     # -------------------------------------------------------------------------
-    # Rate limiting -- baseline (1000 req/s avg, 2000 burst, per IP)
+    # Rate limiting -- baseline (per source IP)
     # -------------------------------------------------------------------------
-    # Generous default for normal web apps. Shared / WAF-protected hosts
-    # may want higher; admin / login surfaces want `rate-limit-strict`.
+    # 5000 req/s average / 10000 burst is sized for CGNAT (Carrier-Grade
+    # NAT) reality: mobile carriers, dual-stack-lite ISPs, and corporate
+    # egress networks share a single IPv4 across hundreds-to-thousands
+    # of subscribers. A modest mobile cell tower load (5000 users each
+    # loading a 50-asset page) easily produces 250k burst requests from
+    # a single apparent source IP. The 1000 req/s "tutorial default"
+    # would rate-limit those legitimate users into a 503 storm.
+    #
+    # The trade-off: a single-attacker flood from one residential IP can
+    # produce ~10000 small req/s (limited by their upstream link), so
+    # this still bounds the single-IP attack vector. Distributed floods
+    # (botnet) need anti-DDoS at the provider / CDN level, not here.
+    #
+    # Apps with stricter requirements: copy and override per-app.
     rate-limit:
       rateLimit:
-        average: 1000
-        burst: 2000
+        average: 5000
+        burst: 10000
         period: 1s
         sourceCriterion:
           ipStrategy:
-            depth: 1   # trust first proxy (Traefik itself)
+            depth: 1            # trust first proxy (Traefik itself)
+            ipv6Subnet: 64      # aggregate IPv6 to /64 (one customer)
+
+
+    # -------------------------------------------------------------------------
+    # Rate limiting -- permissive (heavy-CGNAT environments)
+    # -------------------------------------------------------------------------
+    # For apps targeting markets with extreme CGNAT consolidation
+    # (mobile-first audiences in emerging markets, large corporate
+    # tenants behind a single egress proxy). Sized for ~10k subscribers
+    # behind one IPv4.
+    rate-limit-permissive:
+      rateLimit:
+        average: 20000
+        burst: 40000
+        period: 1s
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+            ipv6Subnet: 64
 
 
     # -------------------------------------------------------------------------
     # Rate limiting -- strict (admin / login / brute-force-prone surfaces)
     # -------------------------------------------------------------------------
+    # 10 req/s average / 20 burst is fine HERE because admin surfaces
+    # in this stack are gated by IP whitelist FIRST -- only trusted
+    # source IPs (office / VPN / static personal) reach the rate limiter.
+    # Those IPs aren't CGNAT-shared, so 10 req/s catches brute-force
+    # password attacks without bothering legitimate operators.
+    #
+    # Do NOT apply `rate-limit-strict` to a router that lacks an IP
+    # whitelist -- legitimate CGNAT users would see 503s.
     rate-limit-strict:
       rateLimit:
         average: 10

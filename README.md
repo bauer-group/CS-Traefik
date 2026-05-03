@@ -245,7 +245,15 @@ Apps choose what they need from `dynamic/middlewares.yml`:
 Available atomic middlewares: `bg-provider`, `compression`,
 `strip-auth`, `https-redirect`, `hsts`, `hsts-mild`, `frame-deny`,
 `frame-sameorigin`, `nosniff`, `referrer-strict`, `referrer-noreferrer`,
-`permissions-deny`, `rate-limit`, `rate-limit-strict`, `server-scrub`.
+`permissions-deny`, `rate-limit`, `rate-limit-permissive`, `rate-limit-strict`, `server-scrub`.
+
+**Rate-limiting note**: the `rate-limit` defaults (5000 req/s average,
+10000 burst per IP) are sized to be **CGNAT-tolerant**. Mobile carriers,
+dual-stack-lite ISPs, and corporate egress networks aggregate hundreds-
+to-thousands of subscribers behind a single IPv4 — tighter limits hit
+legitimate users before they hit attackers. Use `rate-limit-permissive`
+for apps targeting heavy-CGNAT markets, or `rate-limit-strict` only
+BEHIND an IP whitelist (admin surfaces).
 
 Pre-composed example chains: `hardened-public`, `hardened-api`.
 
