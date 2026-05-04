@@ -1,9 +1,3 @@
-## [0.1.2](https://github.com/bauer-group/CS-Traefik/compare/v0.1.1...v0.1.2) (2026-05-04)
-
-### 🐛 Bug Fixes
-
-* removed global HTTP→HTTPS redirect, added admin-host redirect ([2616904](https://github.com/bauer-group/CS-Traefik/commit/2616904b98605fd815f9848d847fa7c14873f52b))
-
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
@@ -14,32 +8,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Fixed
 
-* HTTP→HTTPS redirect is now **per-router**, not global at the entrypoint
-  level. The previous default would intercept every HTTP request before
-  router matching, making HTTP-only routes (webhooks, IoT endpoints, ACME
-  challenges, dumb-LB health probes) impossible regardless of how an
-  app's labels were configured. Restored to the legacy EDGEPROXY pattern
-  where each app router decides via its own redirect middleware (e.g.
-  the `${STACK_NAME}-redirect-to-secure` pattern in BG app stacks, or
-  the `https-redirect@file` one-liner from `dynamic/middlewares.yml`).
-  The block stays in `traefik.yml` as a commented-out reference for
-  operators who genuinely want a global redirect.
+* `respondingTimeouts` on `web` + `web-secure` entrypoints reset to the
+  legacy v2 EDGEPROXY values: `readTimeout=0s`, `writeTimeout=0s`,
+  `idleTimeout=180s`. The previous 60s/60s/180s defaults silently broke:
+  * Large file uploads over slow / mobile links (DocumentSigning S3
+    multipart pushes via MinIO routinely take >60s for 100MB+ PDFs).
+  * Server-Sent Events (SSE) / streaming responses that need to hold
+    the connection open for minutes.
+  * Webhooks with long-running server-side logic (signing seal,
+    document conversion).
+  Note: Traefik v3 ships a new default of `readTimeout=60s` (v2 default
+  was `0s`) -- this is a v2→v3 migration footgun the upstream changelog
+  doesn't highlight loudly. We override back to v2 behaviour for
+  byte-for-byte compat with the legacy stack. Slowloris consideration
+  documented in `traefik.yml`; in BG production environments the legacy
+  values have been used for years without incident.
 
-* Added a dedicated HTTP→HTTPS redirect router for the admin FQDN that
-  activates only when `API_HOST` is set. Single rule `Host(${API_HOST})`
-  on the `web` entrypoint, with the IP whitelist applied so even the
-  redirect isn't visible to non-whitelisted clients. Catches the entire
-  admin surface (`/dashboard`, `/grafana`, `/prometheus`, `/alertmanager`)
-  in one rule -- after redirect, the HTTPS routers handle their specific
-  path prefixes.
+## [0.1.2](https://github.com/bauer-group/CS-Traefik/compare/v0.1.1...v0.1.2) (2026-05-04)
 
-### Changed
+### 🐛 Bug Fixes
 
-* CHANGELOG file restructured so the `# Changelog` title is the first
-  line (fixes MD041 markdownlint warning) and the matching
-  `changelogTitle` in `.github/config/release/semantic-release.json`
-  ensures future automated releases insert new entries BELOW the title
-  block instead of prepending above it.
+* removed global HTTP→HTTPS redirect, added admin-host redirect ([2616904](https://github.com/bauer-group/CS-Traefik/commit/2616904b98605fd815f9848d847fa7c14873f52b))
 
 ## [0.1.1](https://github.com/bauer-group/CS-Traefik/compare/v0.1.0...v0.1.1) (2026-05-03)
 

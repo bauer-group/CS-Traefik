@@ -112,11 +112,41 @@ entryPoints:
     #     entryPoint:
     #       to: web-secure
     #       scheme: https
-    #       permanent: true    
+    #       permanent: true
     transport:
+      # respondingTimeouts -- byte-compatible with the legacy v2
+      # EDGEPROXY stack. Traefik v3 introduced a NEW default
+      # readTimeout=60s (v2 default was 0s = unlimited) -- many v2->v3
+      # migrations get bitten by this silently because legitimate slow
+      # uploads / SSE / webhooks suddenly 504. We override it back.
+      #
+      #   readTimeout=0s   -- no upper bound on how long a request body
+      #                       can take. Required for: large file uploads
+      #                       over slow links (S3 multipart on mobile),
+      #                       MinIO presigned-URL pushes, video uploads,
+      #                       webhooks with long-running server logic.
+      #   writeTimeout=0s  -- no upper bound on how long the response
+      #                       can take. Required for: SSE / event-stream
+      #                       responses, streaming downloads, slow
+      #                       backends responding to large queries.
+      #   idleTimeout=180s -- close keepalive connections that haven't
+      #                       seen activity for 3 minutes. Same as
+      #                       legacy. WebSocket apps that need longer
+      #                       (Slack-like presence, MQTT-over-WS) should
+      #                       send heartbeats inside the 3-minute window.
+      #
+      # Slowloris-style attacks are theoretically possible with
+      # readTimeout=0, but require holding open thousands of slow
+      # connections. Modern Go HTTP server + OS-level connection limits
+      # (sysctl net.ipv4.tcp_max_syn_backlog, ulimit nofile) defend
+      # against this in practice. If your threat model genuinely
+      # requires it, set readTimeout=600s (10 min) -- still allows
+      # 100MB uploads on 128 kbit/s mobile but caps single-connection
+      # hold time. Production-tested in BG environments for years
+      # without slowloris incidents.
       respondingTimeouts:
-        readTimeout: 60s
-        writeTimeout: 60s
+        readTimeout: 0s
+        writeTimeout: 0s
         idleTimeout: 180s
 
   web-secure:
@@ -127,9 +157,12 @@ entryPoints:
     http3:
       advertisedPort: 443
     transport:
+      # See `web` block above for the full rationale -- same values for
+      # HTTPS so behaviour is identical regardless of which entrypoint
+      # the request hits.
       respondingTimeouts:
-        readTimeout: 60s
-        writeTimeout: 60s
+        readTimeout: 0s
+        writeTimeout: 0s
         idleTimeout: 180s
 
   api:
