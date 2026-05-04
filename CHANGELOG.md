@@ -1,61 +1,18 @@
-## [0.2.0](https://github.com/bauer-group/CS-Traefik/compare/v0.1.5...v0.2.0) (2026-05-04)
-
-### 🚀 Features
-
-* bg-provider always-on + middleware catalog + comprehensive docs/ ([b205905](https://github.com/bauer-group/CS-Traefik/commit/b2059056097893dd0b93e58d7f02835ff78ae901))
-
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+This file is maintained automatically by semantic-release. Do not
+edit manually -- write a Conventional Commit on `main` and the
+release pipeline will append the entry on the next run.
 
-### Added
+## [0.2.0](https://github.com/bauer-group/CS-Traefik/compare/v0.1.5...v0.2.0) (2026-05-04)
 
-* **`docs/`** -- comprehensive documentation directory split out of
-  the README. 20 files, ~5200 lines covering installation,
-  configuration reference, profiles, networking (with IPv4/IPv6 +
-  CGNAT subnet rationale), TLS / certificates (Let's Encrypt + 24
-  pre-wired DNS-01 providers + manual / corporate-CA / mTLS), admin
-  access (3 modes), middleware catalog, custom file-provider routes,
-  monitoring (Prometheus / Grafana / Loki / Promtail / Alertmanager),
-  six worked examples (basic web app, MinIO/S3, API with rate-limit,
-  wildcard cert via Cloudflare DNS-01, Authelia forward-auth, on-prem
-  VM via file provider), and four operations docs (migration from
-  v2.x, troubleshooting, backup/restore, upgrades). README trimmed
-  to a high-level entry point linking into `docs/`.
+### 🚀 Features
 
-* **Expanded middleware catalog** in `dynamic/middlewares.yml`. New
-  middlewares:
-  * `cors-permissive` and `cors-credentials` -- CORS for public read-
-    only APIs and credentials-bearing apps respectively.
-  * `body-limit-1mb`, `body-limit-10mb`, `body-limit-100mb` -- opt-in
-    body size caps. NOTE: applying any of these enables Traefik
-    buffering for that route (streaming is the default without).
-  * `retry`, `retry-aggressive` -- transparent retry on transient
-    backend failures, idempotent methods only.
-  * `circuit-breaker`, `circuit-breaker-strict` -- fail-fast when
-    backends misbehave, prevents cascading failure.
-  * `redirect-strip-www`, `redirect-add-www` -- domain canonicalization.
-  * `forward-auth-authelia`, `forward-auth-authentik` -- SSO templates
-    for forward-auth integrations.
-  * `strip-prefix-api` -- example path-prefix stripper.
-  * Pre-composed chains expanded: `s3-streaming` (rate-limit-permissive,
-    server-scrub, no buffering or compression) and `hardened-login`
-    (HSTS, frame-deny, nosniff, referrer-noreferrer, server-scrub,
-    rate-limit-strict, no compression to avoid BREACH).
-
-### Changed
-
-* **`bg-provider` is now ALWAYS-ON** (entrypoint-level, not opt-in).
-  Wired into `entryPoints.web.http.middlewares` and
-  `entryPoints.web-secure.http.middlewares` in `traefik.yml` -- runs
-  on every public request and response, before any router-level
-  middleware. Apps cannot opt out. The `X-Solution-Provider: BAUER
-  GROUP` header is now a compliance / branding default for every
-  public response from the entire estate.
+* bg-provider always-on + middleware catalog + comprehensive docs/ ([b205905](https://github.com/bauer-group/CS-Traefik/commit/b2059056097893dd0b93e58d7f02835ff78ae901))
 
 ## [0.1.5](https://github.com/bauer-group/CS-Traefik/compare/v0.1.4...v0.1.5) (2026-05-04)
 

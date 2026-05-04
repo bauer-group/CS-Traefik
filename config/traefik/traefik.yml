@@ -125,7 +125,9 @@ entryPoints:
       # level middleware, can NOT be opted-out by an app). Reserved for
       # things that are non-negotiable across the whole stack:
       #   * bg-provider -- adds the X-Solution-Provider: BAUER GROUP
-      #     identification header to every request and response.
+      #     identification header to every public response (response-
+      #     side only -- request-side is pointless because the backend
+      #     is already in our control).
       # Apps can layer ADDITIONAL middlewares on their routers; those
       # run AFTER the entrypoint middlewares.
       middlewares:

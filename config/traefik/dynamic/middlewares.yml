@@ -34,16 +34,21 @@ http:
     # =========================================================================
 
     # -------------------------------------------------------------------------
-    # bg-provider -- BAUER GROUP identification
+    # bg-provider -- BAUER GROUP identification (response only)
     # -------------------------------------------------------------------------
     # Wired into entryPoints.web.http.middlewares + entryPoints.web-secure.
-    # http.middlewares in traefik.yml. Runs on EVERY public request and
-    # response, before any router-level middleware. Apps cannot opt out.
-    # Compliance / branding requirement -- not a security boundary.
+    # http.middlewares in traefik.yml. Runs on EVERY public response,
+    # before any router-level middleware. Apps cannot opt out.
+    #
+    # Response-header only -- the request flow is client -> proxy ->
+    # backend, so adding X-Solution-Provider on the REQUEST side would
+    # tell the BACKEND about the proxy (pointless; the backend is
+    # already in our control). The point is to mark traffic LEAVING
+    # the proxy back to the client as "this came through a BG-managed
+    # edge" -- pure response-side concern. Compliance / branding
+    # requirement, not a security boundary.
     bg-provider:
       headers:
-        customRequestHeaders:
-          X-Solution-Provider: "BAUER GROUP"
         customResponseHeaders:
           X-Solution-Provider: "BAUER GROUP"
 

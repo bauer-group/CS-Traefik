@@ -35,18 +35,19 @@ non-negotiable).
 
 Wired into `entryPoints.web.http.middlewares` and
 `entryPoints.web-secure.http.middlewares` in `traefik.yml`. Runs on
-**every** public request and response, before any router-level
-middleware. Apps cannot opt out.
+**every public response**, before any router-level middleware. Apps
+cannot opt out.
 
-**What it does**: adds `X-Solution-Provider: BAUER GROUP` request
-and response header. Compliance / branding requirement, not a security
-boundary.
+**What it does**: adds `X-Solution-Provider: BAUER GROUP` to the
+response. Response-side only — adding it on the request side would
+just tell the backend about the proxy (pointless; the backend is
+already in our control). The point is to mark traffic *leaving* the
+proxy back to the client. Compliance / branding requirement, not a
+security boundary.
 
 ```yaml
 bg-provider:
   headers:
-    customRequestHeaders:
-      X-Solution-Provider: "BAUER GROUP"
     customResponseHeaders:
       X-Solution-Provider: "BAUER GROUP"
 ```
