@@ -14,12 +14,15 @@
 #   headers than an OAuth-redirect endpoint.
 #
 #   So this file ships ATOMIC, OPT-IN middlewares. Apps pick what they
-#   need; the proxy applies nothing globally except the BAUER GROUP
-#   identification header.
+#   need; the proxy applies nothing globally to app traffic except the
+#   BAUER GROUP `bg-provider` identification header (wired at the
+#   entrypoint level in traefik.yml, ALWAYS-ON, not opt-out-able).
 #
 # Middlewares specific to the admin entrypoint (BasicAuth, IP whitelist,
 # strict rate-limit) are defined as labels on the traefik service in
 # docker-compose.yml -- their values come from .env.
+#
+# For full documentation see docs/middlewares.md.
 # =============================================================================
 
 http:
@@ -27,15 +30,16 @@ http:
   middlewares:
 
     # =========================================================================
-    # ALWAYS-AVAILABLE BUILDING BLOCKS
+    # ALWAYS-ON  (entrypoint-level in traefik.yml)
     # =========================================================================
 
     # -------------------------------------------------------------------------
-    # X-Solution-Provider (BAUER GROUP identification)
+    # bg-provider -- BAUER GROUP identification
     # -------------------------------------------------------------------------
-    # The only header this stack adds by default. Marks responses passing
-    # through this proxy as belonging to a BAUER GROUP deployment. Apply
-    # to whichever apps you want -- it is NOT applied globally.
+    # Wired into entryPoints.web.http.middlewares + entryPoints.web-secure.
+    # http.middlewares in traefik.yml. Runs on EVERY public request and
+    # response, before any router-level middleware. Apps cannot opt out.
+    # Compliance / branding requirement -- not a security boundary.
     bg-provider:
       headers:
         customRequestHeaders:
@@ -44,44 +48,9 @@ http:
           X-Solution-Provider: "BAUER GROUP"
 
 
-    # -------------------------------------------------------------------------
-    # Compression (gzip / brotli / zstd)
-    # -------------------------------------------------------------------------
-    # Safe to apply broadly. Honours Accept-Encoding from the client and
-    # excludes types that must not be compressed (Server-Sent Events).
-    compression:
-      compress:
-        excludedContentTypes:
-          - text/event-stream
-        minResponseBodyBytes: 1024
-
-
-    # -------------------------------------------------------------------------
-    # Strip the Authorization header before forwarding to backends
-    # -------------------------------------------------------------------------
-    # Useful when BasicAuth is used at the edge but the upstream service
-    # doesn't expect (and might mishandle) an Authorization header.
-    strip-auth:
-      headers:
-        customRequestHeaders:
-          Authorization: ""
-
-
-    # -------------------------------------------------------------------------
-    # Force HTTPS scheme (helper, rarely needed -- the entrypoint already
-    # redirects)
-    # -------------------------------------------------------------------------
-    https-redirect:
-      redirectScheme:
-        scheme: https
-        permanent: true
-
-
     # =========================================================================
-    # OPT-IN HARDENING -- atomic single-concern middlewares
+    # SECURITY HEADERS  (opt-in per router)
     # =========================================================================
-    # Pick what your specific app needs. Combine via .middlewares=a@file,b@file
-    # or by composing your own chain on the app side.
 
     # -------------------------------------------------------------------------
     # HSTS -- HTTP Strict Transport Security
@@ -152,6 +121,80 @@ http:
 
 
     # -------------------------------------------------------------------------
+    # Server-header scrubbing
+    # -------------------------------------------------------------------------
+    # Strips the upstream `Server` and `X-Powered-By` response headers --
+    # mild obscurity hardening.
+    server-scrub:
+      headers:
+        customResponseHeaders:
+          Server: ""
+          X-Powered-By: ""
+
+
+    # =========================================================================
+    # CORS  (Cross-Origin Resource Sharing)
+    # =========================================================================
+    # CORS is browser-enforced policy. Servers signal allowed origins via
+    # response headers; browsers enforce on cross-origin XHR / fetch / WS.
+    # Public APIs / fonts / static assets often need permissive CORS;
+    # session-bearing apps need carefully-scoped CORS.
+
+    # -------------------------------------------------------------------------
+    # CORS -- permissive (allow all origins, no credentials)
+    # -------------------------------------------------------------------------
+    # OK for: public read-only APIs, font CDNs, static asset hosts.
+    # NOT OK for: anything where the response carries cookies / auth.
+    # CORS spec forbids `*` origin with `Access-Control-Allow-Credentials:
+    # true` -- browsers reject the response.
+    cors-permissive:
+      headers:
+        accessControlAllowOriginList:
+          - "*"
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+          - HEAD
+        accessControlAllowHeaders:
+          - "*"
+        accessControlMaxAge: 3600
+        addVaryHeader: true
+
+    # -------------------------------------------------------------------------
+    # CORS -- credentials (TEMPLATE -- override per-app)
+    # -------------------------------------------------------------------------
+    # Replace the origin list with your specific origins. CORS WITH
+    # credentials forbids wildcard origins.
+    cors-credentials:
+      headers:
+        accessControlAllowOriginList:
+          - "https://app.example.com"
+          - "https://admin.example.com"
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+          - OPTIONS
+        accessControlAllowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Requested-With
+        accessControlAllowCredentials: true
+        accessControlMaxAge: 3600
+        addVaryHeader: true
+
+
+    # =========================================================================
+    # RATE LIMITING
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
     # Rate limiting -- baseline (per source IP)
     # -------------------------------------------------------------------------
     # 5000 req/s average / 10000 burst is sized for CGNAT (Carrier-Grade
@@ -166,8 +209,6 @@ http:
     # produce ~10000 small req/s (limited by their upstream link), so
     # this still bounds the single-IP attack vector. Distributed floods
     # (botnet) need anti-DDoS at the provider / CDN level, not here.
-    #
-    # Apps with stricter requirements: copy and override per-app.
     rate-limit:
       rateLimit:
         average: 5000
@@ -180,12 +221,11 @@ http:
 
 
     # -------------------------------------------------------------------------
-    # Rate limiting -- permissive (heavy-CGNAT environments)
+    # Rate limiting -- permissive (heavy-CGNAT, S3 multipart, file uploads)
     # -------------------------------------------------------------------------
-    # For apps targeting markets with extreme CGNAT consolidation
-    # (mobile-first audiences in emerging markets, large corporate
-    # tenants behind a single egress proxy). Sized for ~10k subscribers
-    # behind one IPv4.
+    # For apps targeting markets with extreme CGNAT consolidation, or
+    # endpoints where a single client legitimately sends many concurrent
+    # requests (S3 multipart uploads with high `max_concurrency`).
     rate-limit-permissive:
       rateLimit:
         average: 20000
@@ -203,9 +243,6 @@ http:
     # 10 req/s average / 20 burst is fine HERE because admin surfaces
     # in this stack are gated by IP whitelist FIRST -- only trusted
     # source IPs (office / VPN / static personal) reach the rate limiter.
-    # Those IPs aren't CGNAT-shared, so 10 req/s catches brute-force
-    # password attacks without bothering legitimate operators.
-    #
     # Do NOT apply `rate-limit-strict` to a router that lacks an IP
     # whitelist -- legitimate CGNAT users would see 503s.
     rate-limit-strict:
@@ -215,45 +252,263 @@ http:
         period: 1s
 
 
-    # -------------------------------------------------------------------------
-    # Server-header scrubbing
-    # -------------------------------------------------------------------------
-    # Strips the upstream `Server` and `X-Powered-By` response headers --
-    # mild obscurity hardening.
-    server-scrub:
-      headers:
-        customResponseHeaders:
-          Server: ""
-          X-Powered-By: ""
-
-
     # =========================================================================
-    # EXAMPLE COMPOSED CHAINS (totally optional -- copy-paste starting points)
+    # BODY SIZE LIMITS  (buffering middleware = OPT-IN -- streaming is default)
     # =========================================================================
-    # Reference these from app-side labels:
-    #   traefik.http.routers.foo.middlewares=hardened-public@file
+    # WARNING: applying ANY of these middlewares enables Traefik's buffering
+    # behaviour for that route. Without these middlewares, Traefik streams
+    # request and response bodies directly without buffering -- which is
+    # what you want for S3, MinIO, large uploads, SSE, video streams etc.
     #
-    # Adjust the contents to match your specific app's needs.
+    # Use these ONLY on routes where you want to ENFORCE a size cap (e.g.
+    # public APIs that should reject 10 GB nonsense uploads). Apply at
+    # the SPECIFIC router that needs the cap, NOT globally.
 
-    # Public web app -- modern browser audience, no legacy compat concerns.
-    # Includes HSTS preload-eligible, frame-deny, nosniff, referrer-strict.
+    # 1 MB cap -- typical small-API / form-submission limit.
+    body-limit-1mb:
+      buffering:
+        maxRequestBodyBytes: 1048576
+        maxResponseBodyBytes: 1048576
+
+    # 10 MB cap -- larger API payloads, JSON imports.
+    body-limit-10mb:
+      buffering:
+        maxRequestBodyBytes: 10485760
+        maxResponseBodyBytes: 10485760
+
+    # 100 MB cap -- generous, but still bounded.
+    body-limit-100mb:
+      buffering:
+        maxRequestBodyBytes: 104857600
+        maxResponseBodyBytes: 104857600
+
+
+    # =========================================================================
+    # RESILIENCE  (retry + circuit breaker)
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # Retry -- transparent retry on transient failures
+    # -------------------------------------------------------------------------
+    # Retries up to 3 times with exponential backoff (100ms initial, 1s cap).
+    # Only retries IDEMPOTENT methods (GET / HEAD / OPTIONS / PUT / DELETE)
+    # by default -- non-idempotent (POST / PATCH) is NEVER retried because
+    # the request might have side-effects.
+    retry:
+      retry:
+        attempts: 3
+        initialInterval: 100ms
+
+    # More aggressive retry for read-heavy APIs / static asset proxies.
+    retry-aggressive:
+      retry:
+        attempts: 5
+        initialInterval: 50ms
+
+
+    # -------------------------------------------------------------------------
+    # Circuit breaker -- fail-fast when backends misbehave
+    # -------------------------------------------------------------------------
+    # Trips the breaker when more than 30% of recent requests return 5xx
+    # (within the last 10 seconds). Once tripped, returns 503 immediately
+    # for all requests for the recovery window, then half-opens to test.
+    # Protects backends from being hammered when they're already failing.
+    circuit-breaker:
+      circuitBreaker:
+        expression: "ResponseCodeRatio(500, 600, 0, 600) > 0.30"
+        checkPeriod: 10s
+        fallbackDuration: 10s
+        recoveryDuration: 10s
+
+    # Stricter variant -- trips at 10% errors.
+    circuit-breaker-strict:
+      circuitBreaker:
+        expression: "ResponseCodeRatio(500, 600, 0, 600) > 0.10"
+        checkPeriod: 10s
+        fallbackDuration: 30s
+        recoveryDuration: 30s
+
+
+    # =========================================================================
+    # DOMAIN CANONICALIZATION  (www / non-www)
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # Strip `www.` from the host (redirect www.example.com -> example.com)
+    # -------------------------------------------------------------------------
+    # Apply on a router that matches `Host(\`www.example.com\`)`.
+    redirect-strip-www:
+      redirectRegex:
+        regex: "^https?://www\\.(.+)"
+        replacement: "https://$1"
+        permanent: true
+
+    # -------------------------------------------------------------------------
+    # Add `www.` to the host (redirect example.com -> www.example.com)
+    # -------------------------------------------------------------------------
+    # Apply on a router that matches `Host(\`example.com\`)` (the bare host).
+    redirect-add-www:
+      redirectRegex:
+        regex: "^https?://(?:www\\.)?(.+)"
+        replacement: "https://www.$1"
+        permanent: true
+
+
+    # =========================================================================
+    # FORWARD AUTH  (SSO via Authelia / Authentik / Vouch / oauth2-proxy)
+    # =========================================================================
+    # Forward-auth delegates authentication to an external service. Traefik
+    # makes a sub-request to the auth service for each incoming request;
+    # if the auth service returns 200, the request is forwarded to the
+    # backend. If 401, the user is redirected to the auth service's login.
+    #
+    # These templates assume Authelia / Authentik are running on the
+    # internal proxy network with hostnames `authelia` / `authentik`.
+    # Adjust addresses / trustForwardHeader / authResponseHeaders to match
+    # your specific deployment. Reference these on app routers:
+    #   traefik.http.routers.myapp.middlewares=forward-auth-authelia@file
+
+    # -------------------------------------------------------------------------
+    # Authelia -- https://www.authelia.com/
+    # -------------------------------------------------------------------------
+    forward-auth-authelia:
+      forwardAuth:
+        address: "http://authelia:9091/api/verify?rd=https://auth.example.com"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - Remote-User
+          - Remote-Groups
+          - Remote-Name
+          - Remote-Email
+
+    # -------------------------------------------------------------------------
+    # Authentik -- https://goauthentik.io/
+    # -------------------------------------------------------------------------
+    forward-auth-authentik:
+      forwardAuth:
+        address: "http://authentik-server:9000/outpost.goauthentik.io/auth/traefik"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - X-authentik-username
+          - X-authentik-groups
+          - X-authentik-email
+          - X-authentik-name
+          - X-authentik-uid
+
+
+    # =========================================================================
+    # PATH MANIPULATION
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # Strip a single path prefix
+    # -------------------------------------------------------------------------
+    # Useful when routing /api/* on the public side to a backend that
+    # expects requests at /. Reference + override per-router:
+    #   traefik.http.middlewares.my-strip.stripprefix.prefixes=/api
+    # The example below strips /api -- copy + adjust per route.
+    strip-prefix-api:
+      stripPrefix:
+        prefixes:
+          - /api
+
+
+    # =========================================================================
+    # COMPRESSION
+    # =========================================================================
+    # Safe to apply broadly. Honours Accept-Encoding from the client and
+    # excludes types that must not be compressed (Server-Sent Events,
+    # already-compressed media).
+    compression:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+          - image/jpeg
+          - image/png
+          - image/webp
+          - video/mp4
+          - application/zip
+        minResponseBodyBytes: 1024
+
+
+    # =========================================================================
+    # AUTH HELPERS
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # Strip the Authorization header before forwarding to backends
+    # -------------------------------------------------------------------------
+    # Useful when BasicAuth is used at the edge but the upstream service
+    # doesn't expect (and might mishandle) an Authorization header.
+    strip-auth:
+      headers:
+        customRequestHeaders:
+          Authorization: ""
+
+
+    # =========================================================================
+    # REDIRECTS
+    # =========================================================================
+
+    # -------------------------------------------------------------------------
+    # Force HTTPS scheme -- per-router HTTP -> HTTPS redirect
+    # -------------------------------------------------------------------------
+    # Apply this to your `web` (port 80) router to redirect to HTTPS.
+    # Each app owns this decision (no global entrypoint redirect by design --
+    # app stacks may have HTTP-only routes for webhooks / IoT / health
+    # probes / ACME-self-hosted / etc.).
+    https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+
+    # =========================================================================
+    # PRE-COMPOSED CHAINS  (starting points -- adjust per-app)
+    # =========================================================================
+    # Apply with: traefik.http.routers.foo.middlewares=hardened-public@file
+
+    # Public web app -- modern browser audience. Includes HSTS preload-
+    # eligible, frame-deny, content-type-nosniff, referrer-strict,
+    # compression, and rate-limit. NOT for SSE / streaming endpoints
+    # (compression breaks SSE) -- swap compression for a no-op there.
     hardened-public:
       chain:
         middlewares:
-          - bg-provider
           - compression
           - hsts
           - frame-deny
           - nosniff
           - referrer-strict
           - server-scrub
+          - rate-limit
 
-    # API backend -- no HSTS preload, no frame headers (irrelevant for API).
+    # API backend -- no HSTS preload, no frame headers, sensible body cap.
     hardened-api:
       chain:
         middlewares:
-          - bg-provider
           - hsts-mild
           - nosniff
           - server-scrub
           - rate-limit
+          - body-limit-10mb
+
+    # S3 / MinIO / large-file endpoint -- streaming, NO buffering, looser
+    # rate-limit for high-concurrency uploads.
+    s3-streaming:
+      chain:
+        middlewares:
+          - rate-limit-permissive
+          - server-scrub
+
+    # Login / authentication endpoint -- strict rate-limit (brute-force
+    # bounded), security headers, no compression (BREACH attack class).
+    hardened-login:
+      chain:
+        middlewares:
+          - hsts
+          - frame-deny
+          - nosniff
+          - referrer-noreferrer
+          - server-scrub
+          - rate-limit-strict

@@ -120,6 +120,16 @@ entryPoints:
     #       to: web-secure
     #       scheme: https
     #       permanent: true
+    http:
+      # ALWAYS-ON middlewares (entrypoint-level, run before any router-
+      # level middleware, can NOT be opted-out by an app). Reserved for
+      # things that are non-negotiable across the whole stack:
+      #   * bg-provider -- adds the X-Solution-Provider: BAUER GROUP
+      #     identification header to every request and response.
+      # Apps can layer ADDITIONAL middlewares on their routers; those
+      # run AFTER the entrypoint middlewares.
+      middlewares:
+        - bg-provider@file
     transport:
       # respondingTimeouts -- byte-compatible with the legacy v2
       # EDGEPROXY stack. Traefik v3 introduced a NEW default
@@ -159,6 +169,10 @@ entryPoints:
   web-secure:
     address: ":443/tcp"
     http:
+      # See `web` block for the entrypoint-middleware rationale -- same
+      # bg-provider always-on for HTTPS too.
+      middlewares:
+        - bg-provider@file
       tls:
         certResolver: letsencrypt
     http3:

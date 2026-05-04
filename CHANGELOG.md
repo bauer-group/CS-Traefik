@@ -1,9 +1,3 @@
-## [0.1.5](https://github.com/bauer-group/CS-Traefik/compare/v0.1.4...v0.1.5) (2026-05-04)
-
-### 🐛 Bug Fixes
-
-* **compat:** standard internal ports + dual-stack bindings + INTERNAL casing ([ceaa84c](https://github.com/bauer-group/CS-Traefik/commit/ceaa84cf80dcae8e91b764255c8dbfe0066dc83b))
-
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
@@ -12,41 +6,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+### Added
+
+* **`docs/`** -- comprehensive documentation directory split out of
+  the README. 20 files, ~5200 lines covering installation,
+  configuration reference, profiles, networking (with IPv4/IPv6 +
+  CGNAT subnet rationale), TLS / certificates (Let's Encrypt + 24
+  pre-wired DNS-01 providers + manual / corporate-CA / mTLS), admin
+  access (3 modes), middleware catalog, custom file-provider routes,
+  monitoring (Prometheus / Grafana / Loki / Promtail / Alertmanager),
+  six worked examples (basic web app, MinIO/S3, API with rate-limit,
+  wildcard cert via Cloudflare DNS-01, Authelia forward-auth, on-prem
+  VM via file provider), and four operations docs (migration from
+  v2.x, troubleshooting, backup/restore, upgrades). README trimmed
+  to a high-level entry point linking into `docs/`.
+
+* **Expanded middleware catalog** in `dynamic/middlewares.yml`. New
+  middlewares:
+  * `cors-permissive` and `cors-credentials` -- CORS for public read-
+    only APIs and credentials-bearing apps respectively.
+  * `body-limit-1mb`, `body-limit-10mb`, `body-limit-100mb` -- opt-in
+    body size caps. NOTE: applying any of these enables Traefik
+    buffering for that route (streaming is the default without).
+  * `retry`, `retry-aggressive` -- transparent retry on transient
+    backend failures, idempotent methods only.
+  * `circuit-breaker`, `circuit-breaker-strict` -- fail-fast when
+    backends misbehave, prevents cascading failure.
+  * `redirect-strip-www`, `redirect-add-www` -- domain canonicalization.
+  * `forward-auth-authelia`, `forward-auth-authentik` -- SSO templates
+    for forward-auth integrations.
+  * `strip-prefix-api` -- example path-prefix stripper.
+  * Pre-composed chains expanded: `s3-streaming` (rate-limit-permissive,
+    server-scrub, no buffering or compression) and `hardened-login`
+    (HSTS, frame-deny, nosniff, referrer-noreferrer, server-scrub,
+    rate-limit-strict, no compression to avoid BREACH).
+
 ### Changed
 
-* **Internal Traefik entrypoint ports use upstream Traefik convention**
-  rather than legacy v2 numbers, since these entrypoints never reach
-  the host and have no external-compat constraint:
-  * `metrics` is now on container-port `8082` (the port shown in the
-    official Traefik docs for the metrics entrypoint).
-  * `ping` is now on container-port `8081` (no canonical Traefik port
-    for ping; clean neighbour to metrics 8082).
-  * Both `traefik.yml` and `prometheus.yml` updated.
+* **`bg-provider` is now ALWAYS-ON** (entrypoint-level, not opt-in).
+  Wired into `entryPoints.web.http.middlewares` and
+  `entryPoints.web-secure.http.middlewares` in `traefik.yml` -- runs
+  on every public request and response, before any router-level
+  middleware. Apps cannot opt out. The `X-Solution-Provider: BAUER
+  GROUP` header is now a compliance / branding default for every
+  public response from the entire estate.
 
-* **External port mappings now bind IPv4 + IPv6 explicitly**. Compose's
-  bare `80:80` syntax binds only `0.0.0.0:80` (IPv4); kernels with
-  `IPV6_V6ONLY=0` may auto-dual-stack via `[::]` but that is config-
-  dependent and unreliable. Now every public port (80/tcp, 443/tcp,
-  443/udp, ${API_PORT}/tcp) has TWO explicit bindings -- one for
-  IPv4 and one for IPv6 -- so behaviour is portable across kernels
-  and Docker versions. New `API_BIND_V6` env var controls the IPv6
-  bind for the admin entrypoint, defaulting to `::1` (loopback only).
+## [0.1.5](https://github.com/bauer-group/CS-Traefik/compare/v0.1.4...v0.1.5) (2026-05-04)
 
-* **Internal network renamed to UPPERCASE** for naming consistency
-  with the public network: `EDGEPROXY-internal` → `EDGEPROXY-INTERNAL`.
-  Both networks now follow the same casing convention. Applies to:
-  the `traefik.docker.network` labels in the monitoring overlay, the
-  `name:` field on the network definition, and `.env.example` /
-  README documentation. App stacks don't attach to this network so
-  no app-side changes are required.
+### 🐛 Bug Fixes
 
-* **`.releaserc.json` added at repo root** mirroring the
-  `.github/config/release/semantic-release.json` so semantic-release's
-  auto-discovery picks up the `changelogTitle` config regardless of
-  which path the reusable workflow looks at. Should fix the recurring
-  "auto-prepended `## [X.Y.Z]` above the `# Changelog` H1" issue --
-  the plugin now sees the title at the start of the file and inserts
-  new release blocks BELOW it.
+* **compat:** standard internal ports + dual-stack bindings + INTERNAL casing ([ceaa84c](https://github.com/bauer-group/CS-Traefik/commit/ceaa84cf80dcae8e91b764255c8dbfe0066dc83b))
 
 ## [0.1.4](https://github.com/bauer-group/CS-Traefik/compare/v0.1.3...v0.1.4) (2026-05-04)
 
