@@ -149,7 +149,7 @@ SPA-login would break OAuth / OIDC redirects.
 Default in `.env.example`:
 
 ```env
-API_WHITELIST=127.0.0.1/32, ::1/128, 172.16.0.0/12, 192.168.0.0/16, 10.0.0.0/8
+API_WHITELIST=127.0.0.1/32, ::1/128, 172.16.0.0/12, 192.168.0.0/16, 10.0.0.0/8, 100.64.0.0/16, fdff:100:64::/64
 ```
 
 This covers:
@@ -161,15 +161,44 @@ This covers:
 | `192.168.0.0/16` | Private LAN -- common SOHO / corporate range |
 | `10.0.0.0/8` | Private LAN -- enterprise-allocated |
 | `172.16.0.0/12` | Private LAN -- Docker default bridge range |
+| `100.64.0.0/16` | EDGEPROXY-INTERNAL Docker subnet (monitoring stack) |
+| `fdff:100:64::/64` | EDGEPROXY-INTERNAL IPv6 subnet |
+
+### Why the EDGEPROXY-INTERNAL subnet is whitelisted, the public one is not
+
+The stack runs two Docker networks with deliberately-distinct trust
+levels:
+
+| Network | Subnet | Purpose | Whitelisted? |
+| --- | --- | --- | --- |
+| `EDGEPROXY` (public) | `100.65.0.0/16` + `fdff:100:65::/64` | Apps that receive **end-user traffic** via Traefik | **No** -- segmentation boundary |
+| `EDGEPROXY-INTERNAL` | `100.64.0.0/16` + `fdff:100:64::/64` | Monitoring stack (Prometheus, Grafana, Loki, Promtail, Alertmanager, node-exporter, cAdvisor) | **Yes** -- needs admin access |
+
+The monitoring profile **needs** the admin surface: Prometheus
+scrapes Traefik metrics (the metrics entrypoint is no-auth on
+`:8082`, but admin-API queries for richer data go through
+`:9090/api/*`); Grafana renders Traefik dashboards from those
+queries. Without `100.64.0.0/16` in the whitelist, the entire
+monitoring profile becomes useless -- which defeats the point of
+running it.
+
+The public network, on the other hand, hosts customer-facing apps.
+Those apps reach Traefik for **traffic forwarding only**; they have
+no operational reason to query admin APIs, dashboards, or metrics.
+A compromised app on the public network must NOT escalate into the
+admin surface -- the missing CIDR enforces that boundary.
+
+### Mode 3 (public FQDN) -- add operator IPs
 
 For mode 3 (public FQDN access), add your office / VPN public IPs:
 
 ```env
-API_WHITELIST=127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, 203.0.113.0/24
+API_WHITELIST=127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/16, fdff:100:64::/64, 100.64.0.0/10, 203.0.113.0/24
 ```
 
-Where `100.64.0.0/10` is CGNAT (Tailscale / WireGuard meshes) and
-`203.0.113.0/24` is your office's public range.
+Where `100.64.0.0/10` is the full CGNAT range (Tailscale / WireGuard
+meshes -- supersets the `100.64.0.0/16` Docker subnet but adds VPN
+clients) and `203.0.113.0/24` is your office's public range.
 
 ## BasicAuth credentials
 
