@@ -1,3 +1,9 @@
+## [0.2.0](https://github.com/bauer-group/CS-Traefik/compare/v0.1.5...v0.2.0) (2026-05-04)
+
+### 🚀 Features
+
+* bg-provider always-on + middleware catalog + comprehensive docs/ ([b205905](https://github.com/bauer-group/CS-Traefik/commit/b2059056097893dd0b93e58d7f02835ff78ae901))
+
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
