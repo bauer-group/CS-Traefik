@@ -180,11 +180,6 @@ then list each pair in
 ```yaml
 tls:
   certificates:
-    - certFile: /etc/traefik/certs/static/wildcard.bauer-group.com.crt
-      keyFile:  /etc/traefik/certs/static/wildcard.bauer-group.com.key
-      stores:
-        - default
-
     - certFile: /etc/traefik/certs/static/customer.example.com.crt
       keyFile:  /etc/traefik/certs/static/customer.example.com.key
       stores:
@@ -207,6 +202,56 @@ for changes — drop a new cert and Traefik picks it up live.
 
 The directory is `.gitignore`d for `*.crt`, `*.key`, `*.pem`, `*.p12`,
 `*.pfx` — private keys never reach the repo.
+
+### `*.bauer-group.com` wildcard (opt-in template)
+
+For the BG corporate wildcard specifically, a ready-to-activate
+template ships in
+[`config/traefik/dynamic/tls-wildcard-bauer-group.yml.disabled`](../config/traefik/dynamic/tls-wildcard-bauer-group.yml.disabled).
+The `.disabled` suffix keeps it inactive until an operator wires
+it up explicitly.
+
+**Activate:**
+
+**Step 1 — drop the cert + key into `config/certs/static/`** with the
+canonical names the template expects:
+
+```text
+config/certs/static/bauer-group.pem    # PEM-encoded full chain
+config/certs/static/bauer-group.key    # PEM-encoded private key (unencrypted)
+```
+
+**Step 2 — rename the template** (drops the `.disabled` suffix):
+
+```bash
+mv config/traefik/dynamic/tls-wildcard-bauer-group.yml.disabled \
+   config/traefik/dynamic/tls-wildcard-bauer-group.yml
+```
+
+Traefik reloads automatically (file provider has `watch: true`) — no
+restart needed.
+
+**Step 3 — verify** in the dashboard under **HTTP → TLS → Certificates**
+that `*.bauer-group.com` appears in the SAN list.
+
+Once active, Traefik serves the wildcard for any SNI matching
+`*.bauer-group.com` (e.g. `api.bauer-group.com`, `app.bauer-group.com`,
+`www.bauer-group.com`). Routers for those hosts do NOT need to set
+`tls.certresolver` — the wildcard handles the handshake. Setting an
+ACME resolver on a host already covered by the wildcard burns Let's
+Encrypt rate-limit budget on a redundant cert.
+
+**Renewal:** corporate-CA certs are rotated manually. Drop in the
+new `.pem` / `.key` pair and Traefik reloads them live. Verify
+expiry from the host:
+
+```bash
+openssl x509 -enddate -noout -in config/certs/static/bauer-group.pem
+```
+
+**Deactivate:** rename back to `.yml.disabled` (or delete the `.yml`).
+Routers fall back to ACME / their declared `certresolver` on next
+reload.
 
 ## TLS options (cipher suites, min version)
 

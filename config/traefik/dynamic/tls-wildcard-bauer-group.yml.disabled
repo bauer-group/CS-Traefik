@@ -1,0 +1,63 @@
+# =============================================================================
+# Optional -- *.bauer-group.com Wildcard Certificate
+# =============================================================================
+# This file is INACTIVE by default (the `.disabled` suffix prevents Traefik's
+# file provider from loading it -- only `*.yml` / `*.yaml` are parsed). Once
+# activated, it tells Traefik to use a corporate-issued wildcard cert for
+# any SNI matching `*.bauer-group.com`, bypassing Let's Encrypt for those
+# hosts entirely.
+#
+# Activation (two steps):
+#
+#   1. Drop the cert + key into config/certs/static/
+#        bauer-group.pem    PEM-encoded certificate (full chain)
+#        bauer-group.key    PEM-encoded private key (unencrypted)
+#
+#      Both are gitignored (.gitignore covers *.pem and *.key) -- the
+#      private key never reaches the repo.
+#
+#   2. Rename this file to drop the `.disabled` suffix:
+#        tls-wildcard-bauer-group.yml.disabled  ->  tls-wildcard-bauer-group.yml
+#
+#      Traefik's file provider has watch:true, so the change is picked up
+#      live -- no restart needed. Verify in the Traefik dashboard under
+#      HTTP -> TLS -> Certificates that *.bauer-group.com appears in the
+#      SAN list.
+#
+# Effect when active:
+#
+# Traefik serves the wildcard for any SNI matching *.bauer-group.com (e.g.
+# api.bauer-group.com, app.bauer-group.com, www.bauer-group.com). Apps with
+# Host(`<anything>.bauer-group.com`) routers do NOT need to set
+# tls.certresolver -- the wildcard handles the handshake.
+#
+# Apps that DO set tls.certresolver=letsencrypt for a *.bauer-group.com
+# host will see the wildcard win the handshake (Traefik prefers
+# tls.certificates over ACME-issued certs for matching SNIs), but ACME
+# may still attempt to issue a redundant cert. To avoid burning Let's
+# Encrypt rate limits on hosts already covered by the wildcard, omit the
+# certresolver label entirely on bauer-group.com routers.
+#
+# Renewal:
+#
+# Wildcard certs from a corporate CA are renewed manually -- replace the
+# .pem and .key files in config/certs/static/ with the new pair, and
+# Traefik reloads them live. Set a calendar reminder ~30 days before the
+# `notAfter` date.
+#
+# Verify the cert's expiry from the host:
+#   openssl x509 -enddate -noout -in config/certs/static/bauer-group.pem
+#
+# Deactivation:
+#
+# Rename back to `.disabled` (or delete the .yml file). The wildcard stops
+# being served on next reload; routers fall back to ACME / their declared
+# certresolver.
+# =============================================================================
+
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/static/bauer-group.pem
+      keyFile:  /etc/traefik/certs/static/bauer-group.key
+      stores:
+        - default

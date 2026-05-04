@@ -134,15 +134,15 @@ tls:
   #
   # Example (uncomment + adjust):
   # certificates:
-  #   - certFile: /etc/traefik/certs/static/wildcard.bauer-group.com.crt
-  #     keyFile:  /etc/traefik/certs/static/wildcard.bauer-group.com.key
-  #     stores:
-  #       - default
-  #
   #   - certFile: /etc/traefik/certs/static/customer.example.com.crt
   #     keyFile:  /etc/traefik/certs/static/customer.example.com.key
   #     stores:
   #       - default
+  #
+  # For the *.bauer-group.com wildcard specifically, a ready-to-activate
+  # template lives next to this file as `tls-wildcard-bauer-group.yml.disabled`.
+  # Drop bauer-group.pem + bauer-group.key into config/certs/static/, then
+  # rename the template to .yml -- no edit to this file needed.
 
   certificates: []
 
