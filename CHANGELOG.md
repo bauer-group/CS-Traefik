@@ -1,3 +1,9 @@
+## [0.1.2](https://github.com/bauer-group/CS-Traefik/compare/v0.1.1...v0.1.2) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* removed global HTTP→HTTPS redirect, added admin-host redirect ([2616904](https://github.com/bauer-group/CS-Traefik/commit/2616904b98605fd815f9848d847fa7c14873f52b))
+
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
