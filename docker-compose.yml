@@ -122,19 +122,84 @@ services:
       traefik.http.middlewares.dashboard-redirect.redirectregex.replacement: "/dashboard/"
       traefik.http.middlewares.dashboard-redirect.redirectregex.permanent: "false"
 
+    # CLI args -- override the YAML-hardcoded defaults in /etc/traefik/
+    # traefik.yml. Why CLI args, not static-config or `TRAEFIK_*` env
+    # vars? Empirically:
+    #   * Static YAML does NOT shell-expand ${VAR:-default}.
+    #   * `TRAEFIK_*` env vars do NOT cover map-key fields (entrypoint
+    #     names, resolver names, ...) -- paerser limitation.
+    # CLI args are the only path that gives full coverage AND clean
+    # `${VAR:-default}` semantics. Override priority is CLI > YAML, so
+    # `traefik.yml` defaults stay parseable standalone (handy for
+    # `traefik validate` / CI lints) while every value remains
+    # .env-tunable through the lines below.
+    #
+    # ── Logging tunables (apply to whole proxy) ──────────────────────────
+    #   LOG_LEVEL         (default INFO)  ERROR | WARN | INFO | DEBUG | TRACE
+    #   ACCESS_LOG_FORMAT (default json)  json | common
+    #
+    # ── Provider tunables ────────────────────────────────────────────────
+    #   NETWORK_NAME      (default EDGEPROXY)  Docker network Traefik
+    #                     watches for service auto-discovery.
+    #
+    # ── ACME tunables (apply to all 3 production resolvers) ──────────────
+    #   LETSENCRYPT_EMAIL (default info@bauer-group.com)
+    #   LETSENCRYPT_CA    (default https://acme-v02.api.letsencrypt.org/
+    #                     directory) -- override to staging URL for testing
+    #                     without burning prod rate limits.
+    #   LETSENCRYPT_DNS_PROVIDER (default cloudflare) -- only consulted
+    #                     when an app uses tls.certresolver=letsencrypt-dns.
+    #
+    # ── respondingTimeouts (per entrypoint) ─────────────────────────────
+    #   WEB_READ_TIMEOUT  (default 0s)   -- no upper bound on request
+    #     body. Required for: large file uploads over slow links (S3
+    #     multipart on mobile), MinIO presigned-URL pushes, video
+    #     uploads, webhooks with long-running server logic.
+    #   WEB_WRITE_TIMEOUT (default 0s)   -- no upper bound on response.
+    #     Required for: SSE / event-stream, streaming downloads, slow
+    #     backends responding to large queries.
+    #   WEB_IDLE_TIMEOUT  (default 300s) -- close keepalive connections
+    #     idle for 5 minutes. Bumped from Traefik default 180s so
+    #     WebSocket apps that don't ping every 3 minutes don't get cut.
+    #     Slowloris-hardening: if your threat model needs a hard cap,
+    #     set WEB_READ_TIMEOUT=600s -- still allows 100MB uploads on
+    #     128 kbit/s mobile but caps single-connection hold time.
+    command:
+      # Logging
+      - --log.level=${LOG_LEVEL:-INFO}
+      - --accesslog.format=${ACCESS_LOG_FORMAT:-json}
+
+      # Docker provider
+      - --providers.docker.network=${NETWORK_NAME:-EDGEPROXY}
+
+      # ACME -- letsencrypt (HTTP-01)
+      - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-info@bauer-group.com}
+      - --certificatesresolvers.letsencrypt.acme.caserver=${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}
+
+      # ACME -- letsencrypt-tls (TLS-ALPN-01)
+      - --certificatesresolvers.letsencrypt-tls.acme.email=${LETSENCRYPT_EMAIL:-info@bauer-group.com}
+      - --certificatesresolvers.letsencrypt-tls.acme.caserver=${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}
+
+      # ACME -- letsencrypt-dns (DNS-01, wildcards / firewalled hosts)
+      - --certificatesresolvers.letsencrypt-dns.acme.email=${LETSENCRYPT_EMAIL:-info@bauer-group.com}
+      - --certificatesresolvers.letsencrypt-dns.acme.caserver=${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}
+      - --certificatesresolvers.letsencrypt-dns.acme.dnschallenge.provider=${LETSENCRYPT_DNS_PROVIDER:-cloudflare}
+
+      # ACME -- letsencrypt-staging (always staging endpoint, only email overridable)
+      - --certificatesresolvers.letsencrypt-staging.acme.email=${LETSENCRYPT_EMAIL:-info@bauer-group.com}
+
+      # respondingTimeouts on web (HTTP) entrypoint
+      - --entrypoints.web.transport.respondingTimeouts.readTimeout=${WEB_READ_TIMEOUT:-0s}
+      - --entrypoints.web.transport.respondingTimeouts.writeTimeout=${WEB_WRITE_TIMEOUT:-0s}
+      - --entrypoints.web.transport.respondingTimeouts.idleTimeout=${WEB_IDLE_TIMEOUT:-300s}
+
+      # respondingTimeouts on web-secure (HTTPS) entrypoint
+      - --entrypoints.web-secure.transport.respondingTimeouts.readTimeout=${WEB_READ_TIMEOUT:-0s}
+      - --entrypoints.web-secure.transport.respondingTimeouts.writeTimeout=${WEB_WRITE_TIMEOUT:-0s}
+      - --entrypoints.web-secure.transport.respondingTimeouts.idleTimeout=${WEB_IDLE_TIMEOUT:-300s}
+
     environment:
       TZ: ${TIME_ZONE:-Etc/UTC}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      ACCESS_LOG_FORMAT: ${ACCESS_LOG_FORMAT:-json}
-      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-info@bauer-group.com}
-
-      # respondingTimeouts on web + web-secure entrypoints.
-      # See traefik.yml `transport:` block for the full rationale.
-      WEB_READ_TIMEOUT: ${WEB_READ_TIMEOUT:-0s}
-      WEB_WRITE_TIMEOUT: ${WEB_WRITE_TIMEOUT:-0s}
-      WEB_IDLE_TIMEOUT: ${WEB_IDLE_TIMEOUT:-300s}
-      LETSENCRYPT_CA: ${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}
-      NETWORK_NAME: ${NETWORK_NAME:-EDGEPROXY}
 
       # ---- DNS-01 challenge: provider selector ------------------------------
       # The `letsencrypt-dns` resolver in traefik.yml uses this to pick the

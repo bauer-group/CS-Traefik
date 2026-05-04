@@ -7,8 +7,22 @@
 # middlewares, and TLS options are dynamic -- those live in
 # config/traefik/dynamic/*.yml and reload on change.
 #
-# Environment expansion: Traefik v3 resolves ${VAR:-default} from the
-# container's env (passed in via docker-compose.yml) when loading this file.
+# Environment expansion: Traefik v3 does NOT perform shell-style
+# `${VAR:-default}` expansion in static config files. Empirically
+# verified: `TRAEFIK_*` native env vars also do NOT cover fields
+# under map keys (e.g. entrypoint names like `web-secure`) -- the
+# upstream `paerser` library has no env-var translation for those.
+#
+# Strategy this file follows: HARDCODE sensible production defaults
+# in YAML below, then OVERRIDE them via CLI args in
+# docker-compose.yml `command:` (where Compose shell-expansion gives
+# us proper `${VAR:-default}` semantics). Override priority is
+# CLI > YAML, per Traefik's documented order.
+#
+# Why this combo: the YAML stays standalone-parseable (handy for
+# `traefik validate`, CI lints, dry-runs) AND every value remains
+# .env-tunable through compose. No envsubst wrapper, no fragile
+# env-var-name guessing.
 # =============================================================================
 
 global:
@@ -25,13 +39,13 @@ global:
 # config/prometheus/alerts.yml). Container stdout/stderr keeps using the
 # Docker json-file driver which DOES rotate (see compose `logging:`).
 log:
-  level: "${LOG_LEVEL:-INFO}"
+  level: INFO
   format: json
   filePath: /var/log/traefik/traefik.log
 
 accessLog:
   filePath: /var/log/traefik/access.log
-  format: "${ACCESS_LOG_FORMAT:-json}"
+  format: json
   bufferingSize: 100
   filters:
     statusCodes:
@@ -132,59 +146,11 @@ entryPoints:
       # run AFTER the entrypoint middlewares.
       middlewares:
         - bg-provider@file
-    transport:
-      # respondingTimeouts -- env-configurable so each deployment can
-      # tune to its specific workload without editing this file.
-      # Defaults match the legacy v2 EDGEPROXY stack (read=0s, write=0s)
-      # plus a slightly more WebSocket-friendly idle (300s vs legacy
-      # 180s). All three values come from .env.
-      #
-      #   WEB_READ_TIMEOUT  (default 0s)   -- no upper bound on how long
-      #                                       a request body can take.
-      #                                       Required for: large file
-      #                                       uploads over slow links
-      #                                       (S3 multipart on mobile),
-      #                                       MinIO presigned-URL pushes,
-      #                                       video uploads, webhooks
-      #                                       with long-running server
-      #                                       logic.
-      #
-      #   WEB_WRITE_TIMEOUT (default 0s)   -- no upper bound on how long
-      #                                       the response can take.
-      #                                       Required for: SSE /
-      #                                       event-stream responses,
-      #                                       streaming downloads, slow
-      #                                       backends responding to
-      #                                       large queries.
-      #
-      #   WEB_IDLE_TIMEOUT  (default 300s) -- close keepalive connections
-      #                                       that haven't seen activity
-      #                                       for 5 minutes. Bumped from
-      #                                       legacy 180s so WebSocket
-      #                                       apps that don't ping every
-      #                                       3 minutes don't get
-      #                                       prematurely cut. Apps with
-      #                                       MQTT-over-WS / Slack-like
-      #                                       presence should still
-      #                                       send heartbeats well within
-      #                                       this window. Memory cost
-      #                                       of half-dead connections
-      #                                       is negligible (~1 KB
-      #                                       each).
-      #
-      # Slowloris-style attacks are theoretically possible with
-      # readTimeout=0, but require holding open thousands of slow
-      # connections. Modern Go HTTP server + OS-level connection limits
-      # (sysctl net.ipv4.tcp_max_syn_backlog, ulimit nofile) defend
-      # against this in practice. If your threat model requires a hard
-      # cap, set WEB_READ_TIMEOUT=600s (10 min) in .env -- still allows
-      # 100MB uploads on 128 kbit/s mobile but caps single-connection
-      # hold time. Production-tested in BG environments for years
-      # without slowloris incidents.
-      respondingTimeouts:
-        readTimeout: "${WEB_READ_TIMEOUT:-0s}"
-        writeTimeout: "${WEB_WRITE_TIMEOUT:-0s}"
-        idleTimeout: "${WEB_IDLE_TIMEOUT:-300s}"
+    # respondingTimeouts (readTimeout / writeTimeout / idleTimeout) are
+    # set via CLI args in docker-compose.yml `command:` -- static-config
+    # YAML does NOT expand `${VAR:-default}` shell syntax, so they
+    # cannot live here if they need to be .env-tunable. See compose
+    # `command:` section for the actual values + full rationale.
 
   web-secure:
     address: ":443/tcp"
@@ -197,14 +163,7 @@ entryPoints:
         certResolver: letsencrypt
     http3:
       advertisedPort: 443
-    transport:
-      # See `web` block for the full rationale -- same values for
-      # HTTPS so behaviour is identical regardless of which entrypoint
-      # the request hits. Env-driven via the same WEB_*_TIMEOUT vars.
-      respondingTimeouts:
-        readTimeout: "${WEB_READ_TIMEOUT:-0s}"
-        writeTimeout: "${WEB_WRITE_TIMEOUT:-0s}"
-        idleTimeout: "${WEB_IDLE_TIMEOUT:-300s}"
+    # respondingTimeouts -- see `web` block + docker-compose.yml command:.
 
   api:
     address: ":9090/tcp"
@@ -228,7 +187,7 @@ entryPoints:
 providers:
   docker:
     endpoint: "unix:///var/run/docker.sock"
-    network: "${NETWORK_NAME:-EDGEPROXY}"
+    network: EDGEPROXY
     exposedByDefault: false
     watch: true
     allowEmptyServices: false
@@ -275,8 +234,8 @@ certificatesResolvers:
   # HTTP-01 from now on.
   letsencrypt:
     acme:
-      email: "${LETSENCRYPT_EMAIL:-info@bauer-group.com}"
-      caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
+      email: info@bauer-group.com
+      caServer: https://acme-v02.api.letsencrypt.org/directory
       storage: /etc/traefik/certs/letsencrypt/letsencrypt.json
       keyType: EC256
       httpChallenge:
@@ -285,8 +244,8 @@ certificatesResolvers:
   # ---- 2. TLS-ALPN-01 (fallback) ---------------------------------------------
   letsencrypt-tls:
     acme:
-      email: "${LETSENCRYPT_EMAIL:-info@bauer-group.com}"
-      caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
+      email: info@bauer-group.com
+      caServer: https://acme-v02.api.letsencrypt.org/directory
       storage: /etc/traefik/certs/letsencrypt/letsencrypt-tls.json
       keyType: EC256
       tlsChallenge: {}
@@ -305,15 +264,17 @@ certificatesResolvers:
   # Reference: https://doc.traefik.io/traefik/https/acme/#providers
   letsencrypt-dns:
     acme:
-      email: "${LETSENCRYPT_EMAIL:-info@bauer-group.com}"
-      caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
+      email: info@bauer-group.com
+      caServer: https://acme-v02.api.letsencrypt.org/directory
       storage: /etc/traefik/certs/letsencrypt/letsencrypt-dns.json
       keyType: EC256
       dnsChallenge:
-        # The provider is picked at runtime from .env. If empty, this
-        # resolver is effectively disabled -- routers that reference it
-        # will simply not be able to acquire certs (Traefik logs a warning).
-        provider: "${LETSENCRYPT_DNS_PROVIDER:-cloudflare}"
+        # Default provider hardcoded as `cloudflare` -- the most common
+        # provider in BG environments. Override via .env
+        # `LETSENCRYPT_DNS_PROVIDER=<other>` (compose CLI arg). The
+        # resolver is only ACTIVE when an app references it via
+        # `tls.certresolver=letsencrypt-dns` -- otherwise it sits idle.
+        provider: cloudflare
         # Recursive DNS resolvers used to verify that the _acme-challenge
         # TXT record has propagated. Cloudflare + Google = fast + neutral.
         resolvers:
@@ -334,7 +295,7 @@ certificatesResolvers:
   # (5 duplicate certs/week, 50 certs/account/week).
   letsencrypt-staging:
     acme:
-      email: "${LETSENCRYPT_EMAIL:-info@bauer-group.com}"
+      email: info@bauer-group.com
       caServer: https://acme-staging-v02.api.letsencrypt.org/directory
       storage: /etc/traefik/certs/letsencrypt/letsencrypt-staging.json
       keyType: EC256
@@ -372,5 +333,14 @@ metrics:
 # -----------------------------------------------------------------------------
 # Experimental features
 # -----------------------------------------------------------------------------
-experimental:
-  plugins: {}
+# Plugins are intentionally NOT configured here. In Traefik v3.6 an empty
+# `plugins: {}` map is a parse error ("plugins cannot be a standalone
+# element") -- the block must either contain at least one plugin
+# descriptor or be omitted entirely. We omit it. To enable a plugin,
+# add the full block (uncomment and fill in):
+#
+#   experimental:
+#     plugins:
+#       my-plugin:
+#         moduleName: github.com/example/my-plugin
+#         version: v0.1.0
