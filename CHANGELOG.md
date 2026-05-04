@@ -1,3 +1,9 @@
+## [0.4.0](https://github.com/bauer-group/CS-Traefik/compare/v0.3.2...v0.4.0) (2026-05-04)
+
+### 🚀 Features
+
+* **tls:** added opt-in *.bauer-group.com wildcard certificate template ([86641b6](https://github.com/bauer-group/CS-Traefik/commit/86641b6ce6781ed027d7ac6134917f30f0a33494))
+
 ## [0.3.2](https://github.com/bauer-group/CS-Traefik/compare/v0.3.1...v0.3.2) (2026-05-04)
 
 ### 🐛 Bug Fixes
