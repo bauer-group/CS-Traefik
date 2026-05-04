@@ -150,10 +150,28 @@ The admin surface is exposed through **two routers** on the same `api`
 entrypoint, evaluated by Traefik in priority order. Only one of them
 applies to any given request, depending on the source IP:
 
-| Router | Source-IP rule | Auth required? | Whitelist? | Used by |
-| --- | --- | --- | --- | --- |
-| `dashboard-internal` (priority 100) | `ClientIP(100.64.0.0/16)` OR `ClientIP(fdff:100:64::/64)` | **No** | **No** | Monitoring stack containers on the EDGEPROXY-INTERNAL Docker network |
-| `dashboard-local` (catch-all) | Everything else | **BasicAuth** | **`API_WHITELIST`** | Operators via host loopback / SSH tunnel; mode-3 public-FQDN access |
+| Router | Priority | Source-IP rule | Auth required? | Whitelist? | Used by |
+| --- | --- | --- | --- | --- | --- |
+| `dashboard-internal` | 200 | `ClientIP(100.64.0.0/16)` OR `ClientIP(fdff:100:64::/64)` | **No** | **No** | Monitoring stack containers on the EDGEPROXY-INTERNAL Docker network |
+| `dashboard-local` | 1 (catch-all) | Everything else | **BasicAuth** | **`API_WHITELIST`** | Operators via host loopback / SSH tunnel |
+| `dashboard-public` | 200 | `Host(${API_HOST})` on `web-secure` | **BasicAuth** | **`API_WHITELIST`** | Mode-3 only -- public-FQDN access over HTTPS |
+| `dashboard-public-http` | 200 | `Host(${API_HOST})` on `web` | (redirect only) | **`API_WHITELIST`** | Mode-3 only -- HTTP -> HTTPS redirect for the admin FQDN |
+
+All four admin routers carry **explicit priorities**, not Traefik's
+default rule-length scoring. Implicit scoring is deterministic but
+fragile: a cosmetic refactor of the rule string (`||` vs ` || `,
+backtick spacing, etc.) silently changes the score and can flip
+which router wins. Explicit priorities pin the intent so future
+edits cannot shadow each other unexpectedly.
+
+The hierarchy is two-tier on purpose:
+
+- **200** = "intercepts a specific case" -- the internal-network
+  bypass, and the admin FQDN. Any plausible default-scored app
+  router tops out around ~150, so admin always wins.
+- **1** = "literally the fallback." Anyone adding a new router on
+  the `api` entrypoint only needs priority >= 2 to take precedence
+  cleanly, without having to outguess implicit rule scores.
 
 The split has three concrete benefits:
 
