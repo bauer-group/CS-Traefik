@@ -1,3 +1,9 @@
+## [0.3.2](https://github.com/bauer-group/CS-Traefik/compare/v0.3.1...v0.3.2) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* **static-config:** repaired Traefik v3.6 startup failures ([4bead03](https://github.com/bauer-group/CS-Traefik/commit/4bead034c3d07948c555dc232fcaaada55214ec2))
+
 ## [0.3.1](https://github.com/bauer-group/CS-Traefik/compare/v0.3.0...v0.3.1) (2026-05-04)
 
 ### ♻️ Refactoring
