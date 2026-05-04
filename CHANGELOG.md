@@ -1,3 +1,9 @@
+## [0.1.5](https://github.com/bauer-group/CS-Traefik/compare/v0.1.4...v0.1.5) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* **compat:** standard internal ports + dual-stack bindings + INTERNAL casing ([ceaa84c](https://github.com/bauer-group/CS-Traefik/commit/ceaa84cf80dcae8e91b764255c8dbfe0066dc83b))
+
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
