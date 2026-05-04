@@ -17,7 +17,9 @@ better defaults, no surprise behaviour for existing app stacks.
   - Entrypoints: `web` (80) and `web-secure` (443) — *with hyphen*, like
     legacy. Existing app `entrypoints=web-secure` labels keep working.
   - Default cert resolver: `letsencrypt` (TLS-ALPN-01).
-  - HTTP→HTTPS redirect at the entry-point level.
+  - HTTP→HTTPS redirect is **per-router** (legacy pattern), NOT global
+    at the entrypoint level. Apps decide whether they want HTTPS-only
+    or genuine HTTP routes (webhooks, IoT endpoints, ACME validators).
 - **Hardened admin access**: dedicated `api` entrypoint on
   `127.0.0.1:9090` by default — Traefik dashboard, Grafana, Prometheus,
   and Alertmanager are reachable via path-prefix routing
@@ -485,7 +487,7 @@ CS-Traefik/
 | Internal network name | `EDGEPROXY_INTERNAL`          | `EDGEPROXY-internal`           |
 | Entrypoints           | `web` + `web-secure`          | `web` + `web-secure`           |
 | Default cert resolver | `letsencrypt` (TLS-ALPN-01)   | `letsencrypt` (TLS-ALPN-01)    |
-| HTTP→HTTPS redirect   | global at entrypoint          | global at entrypoint           |
+| HTTP→HTTPS redirect   | per-router (apps decide)      | per-router (apps decide)       |
 | Dashboard exposure    | `:9090` + path-prefix         | `:9090` + path-prefix          |
 | Dashboard auth        | BasicAuth + IP whitelist      | BasicAuth + IP whitelist       |
 | Monitoring URLs       | `:9090/metrics`, `/grafana`   | `:9090/grafana`, `/prometheus` |

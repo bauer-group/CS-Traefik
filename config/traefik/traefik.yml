@@ -96,12 +96,23 @@ entryPoints:
 
   web:
     address: ":80/tcp"
-    http:
-      redirections:
-        entryPoint:
-          to: web-secure
-          scheme: https
-          permanent: true
+    # NO global HTTP -> HTTPS redirect at the entrypoint level. The
+    # legacy EDGEPROXY stack also kept this off, so app stacks could
+    # decide per-router whether they want HTTPS-only or genuine HTTP
+    # routes (webhooks, ACME challenges, IoT endpoints that can't TLS,
+    # health probes from dumb LBs, ...). A global entrypoint redirect
+    # would intercept BEFORE routers match -- making HTTP-only routes
+    # impossible regardless of how an app's labels are configured.
+    #
+    # App stacks own their redirect: see README "Connecting your service
+    # stacks" or use the `https-redirect@file` middleware as a one-liner
+    # on the HTTP router.
+    # http:
+    #   redirections:
+    #     entryPoint:
+    #       to: web-secure
+    #       scheme: https
+    #       permanent: true    
     transport:
       respondingTimeouts:
         readTimeout: 60s
