@@ -1,3 +1,9 @@
+## [0.1.3](https://github.com/bauer-group/CS-Traefik/compare/v0.1.2...v0.1.3) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* **timeouts:** restored legacy v2 respondingTimeouts on web entrypoints ([aa3068b](https://github.com/bauer-group/CS-Traefik/commit/aa3068be93eac334c310dcd967119748a752deed))
+
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
