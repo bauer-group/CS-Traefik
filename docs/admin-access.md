@@ -144,12 +144,43 @@ because Grafana has its own login session (`GRAFANA_ADMIN_USER` /
 `GRAFANA_ADMIN_PASSWORD`). Layering BasicAuth on top of Grafana's
 SPA-login would break OAuth / OIDC redirects.
 
-## IP whitelist values
+## Two-router model: internal vs external
+
+The admin surface is exposed through **two routers** on the same `api`
+entrypoint, evaluated by Traefik in priority order. Only one of them
+applies to any given request, depending on the source IP:
+
+| Router | Source-IP rule | Auth required? | Whitelist? | Used by |
+| --- | --- | --- | --- | --- |
+| `dashboard-internal` (priority 100) | `ClientIP(100.64.0.0/16)` OR `ClientIP(fdff:100:64::/64)` | **No** | **No** | Monitoring stack containers on the EDGEPROXY-INTERNAL Docker network |
+| `dashboard-local` (catch-all) | Everything else | **BasicAuth** | **`API_WHITELIST`** | Operators via host loopback / SSH tunnel; mode-3 public-FQDN access |
+
+The split has three concrete benefits:
+
+1. **Monitoring stack always works.** `dashboard-internal` is hardcoded
+   to the EDGEPROXY-INTERNAL subnet — operators can never accidentally
+   lock the monitoring containers out of the admin surface by setting
+   an over-restrictive `API_WHITELIST`. Network membership IS the auth:
+   only services we attach to the internal Docker network can send
+   from those ranges.
+
+2. **External access stays gated.** Anyone arriving via host loopback,
+   public FQDN, or any non-internal source falls through to
+   `dashboard-local` and must clear both `API_WHITELIST` AND BasicAuth.
+   `API_WHITELIST` policy applies only to external — its scope is
+   clearly bounded.
+
+3. **`API_WHITELIST` becomes one source of truth for one concern**
+   (external operator access). No drift between "ranges allowed because
+   they're trusted operators" and "ranges allowed because the monitoring
+   stack is on them."
+
+## IP whitelist values (external access only)
 
 Default in `.env.example`:
 
 ```env
-API_WHITELIST=127.0.0.1/32, ::1/128, 172.16.0.0/12, 192.168.0.0/16, 10.0.0.0/8, 100.64.0.0/16, fdff:100:64::/64
+API_WHITELIST=127.0.0.1/32, ::1/128, 172.16.0.0/12, 192.168.0.0/16, 10.0.0.0/8
 ```
 
 This covers:
@@ -161,44 +192,32 @@ This covers:
 | `192.168.0.0/16` | Private LAN -- common SOHO / corporate range |
 | `10.0.0.0/8` | Private LAN -- enterprise-allocated |
 | `172.16.0.0/12` | Private LAN -- Docker default bridge range |
-| `100.64.0.0/16` | EDGEPROXY-INTERNAL Docker subnet (monitoring stack) |
-| `fdff:100:64::/64` | EDGEPROXY-INTERNAL IPv6 subnet |
 
-### Why the EDGEPROXY-INTERNAL subnet is whitelisted, the public one is not
+### Network-trust map
 
 The stack runs two Docker networks with deliberately-distinct trust
 levels:
 
-| Network | Subnet | Purpose | Whitelisted? |
+| Network | Subnet | Purpose | Admin-access path |
 | --- | --- | --- | --- |
-| `EDGEPROXY` (public) | `100.65.0.0/16` + `fdff:100:65::/64` | Apps that receive **end-user traffic** via Traefik | **No** -- segmentation boundary |
-| `EDGEPROXY-INTERNAL` | `100.64.0.0/16` + `fdff:100:64::/64` | Monitoring stack (Prometheus, Grafana, Loki, Promtail, Alertmanager, node-exporter, cAdvisor) | **Yes** -- needs admin access |
-
-The monitoring profile **needs** the admin surface: Prometheus
-scrapes Traefik metrics (the metrics entrypoint is no-auth on
-`:8082`, but admin-API queries for richer data go through
-`:9090/api/*`); Grafana renders Traefik dashboards from those
-queries. Without `100.64.0.0/16` in the whitelist, the entire
-monitoring profile becomes useless -- which defeats the point of
-running it.
-
-The public network, on the other hand, hosts customer-facing apps.
-Those apps reach Traefik for **traffic forwarding only**; they have
-no operational reason to query admin APIs, dashboards, or metrics.
-A compromised app on the public network must NOT escalate into the
-admin surface -- the missing CIDR enforces that boundary.
+| `EDGEPROXY` (public) | `100.65.0.0/16` + `fdff:100:65::/64` | Customer-facing apps that receive **end-user traffic** via Traefik | **None.** Apps reach Traefik for traffic forwarding only; admin surface is unreachable from this network because (a) `dashboard-internal` rule does not match these CIDRs and (b) `API_WHITELIST` does not include them. A compromised public-side app cannot escalate into the admin API. |
+| `EDGEPROXY-INTERNAL` | `100.64.0.0/16` + `fdff:100:64::/64` | Monitoring stack (Prometheus, Grafana, Loki, Promtail, Alertmanager, node-exporter, cAdvisor) | **Auto-allowed** via `dashboard-internal` router. No BasicAuth, no whitelist gate -- network membership IS the trust. |
+| Host loopback / LAN / VPN | `127.0.0.1`, `::1`, RFC1918 ranges | Operator (SSH tunnel / direct LAN access) | **Gated** via `dashboard-local`: must be in `API_WHITELIST` AND must clear BasicAuth. |
 
 ### Mode 3 (public FQDN) -- add operator IPs
 
 For mode 3 (public FQDN access), add your office / VPN public IPs:
 
 ```env
-API_WHITELIST=127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/16, fdff:100:64::/64, 100.64.0.0/10, 203.0.113.0/24
+API_WHITELIST=127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, 203.0.113.0/24
 ```
 
 Where `100.64.0.0/10` is the full CGNAT range (Tailscale / WireGuard
-meshes -- supersets the `100.64.0.0/16` Docker subnet but adds VPN
-clients) and `203.0.113.0/24` is your office's public range.
+meshes) and `203.0.113.0/24` is your office's public range.
+
+The EDGEPROXY-INTERNAL Docker subnet (`100.64.0.0/16`) is *not* added
+here -- it is already handled by the `dashboard-internal` router
+without going through `API_WHITELIST` at all.
 
 ## BasicAuth credentials
 
