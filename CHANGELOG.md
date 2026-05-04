@@ -1,3 +1,9 @@
+## [0.5.0](https://github.com/bauer-group/CS-Traefik/compare/v0.4.2...v0.5.0) (2026-05-04)
+
+### 🚀 Features
+
+* **admin-access:** split internal vs external admin routing -- monitoring stack auto-allowed, API_WHITELIST scoped to external only ([a25e60b](https://github.com/bauer-group/CS-Traefik/commit/a25e60bf2af73d54ec26527add0f9985ed29f5d3))
+
 ## [0.4.2](https://github.com/bauer-group/CS-Traefik/compare/v0.4.1...v0.4.2) (2026-05-04)
 
 ### 🐛 Bug Fixes
