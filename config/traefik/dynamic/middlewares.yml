@@ -37,8 +37,14 @@ http:
     # bg-provider -- BAUER GROUP identification (response only)
     # -------------------------------------------------------------------------
     # Wired into entryPoints.web.http.middlewares + entryPoints.web-secure.
-    # http.middlewares in traefik.yml. Runs on EVERY public response,
-    # before any router-level middleware. Apps cannot opt out.
+    # http.middlewares in traefik.yml. Runs before any router-level
+    # middleware on the public entrypoints. Apps cannot opt out.
+    #
+    # Reach: every response from a MATCHED router. Traefik's built-in
+    # 404 (no matching router for the host/path) is emitted BEFORE the
+    # entrypoint chain runs and therefore does NOT carry the header.
+    # Once an app stack is bound to a hostname, every response from that
+    # router -- including upstream 4xx/5xx -- carries the header.
     #
     # Response-header only -- the request flow is client -> proxy ->
     # backend, so adding X-Solution-Provider on the REQUEST side would

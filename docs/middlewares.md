@@ -34,8 +34,8 @@ non-negotiable).
 ### `bg-provider`
 
 Wired into `entryPoints.web.http.middlewares` and
-`entryPoints.web-secure.http.middlewares` in `traefik.yml`. Runs on
-**every public response**, before any router-level middleware. Apps
+`entryPoints.web-secure.http.middlewares` in `traefik.yml`. Runs
+before any router-level middleware on the public entrypoints. Apps
 cannot opt out.
 
 **What it does**: adds `X-Solution-Provider: BAUER GROUP` to the
@@ -44,6 +44,15 @@ just tell the backend about the proxy (pointless; the backend is
 already in our control). The point is to mark traffic *leaving* the
 proxy back to the client. Compliance / branding requirement, not a
 security boundary.
+
+**Reach**: every response from a *matched* router. Traefik's
+built-in 404 (no matching router for the requested host/path) is
+emitted *before* the entrypoint chain runs and therefore does NOT
+carry the header. Once an app stack is bound to a hostname, every
+response from that router — including upstream 4xx/5xx errors from
+the backend — carries the header. Empirically verified: matched +
+upstream 200 → header present; matched + upstream 404 → header
+present; unmatched host (Traefik built-in 404) → header absent.
 
 ```yaml
 bg-provider:

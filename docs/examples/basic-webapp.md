@@ -170,8 +170,11 @@ compression.
 
 ## Adding the BAUER GROUP brand identity to responses
 
-Already done. Every public response gets `X-Solution-Provider: BAUER
-GROUP` automatically (entrypoint-level `bg-provider` middleware).
+Already done. Every response from this app's router carries
+`X-Solution-Provider: BAUER GROUP` automatically (entrypoint-level
+`bg-provider` middleware). Caveat: Traefik's built-in 404 for
+unmatched hosts is emitted before the entrypoint chain and does
+not carry the header.
 
 To verify:
 
