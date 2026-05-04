@@ -152,10 +152,10 @@ applies to any given request, depending on the source IP:
 
 | Router | Priority | Source-IP rule | Auth required? | Whitelist? | Used by |
 | --- | --- | --- | --- | --- | --- |
-| `dashboard-internal` | 200 | `ClientIP(100.64.0.0/16)` OR `ClientIP(fdff:100:64::/64)` | **No** | **No** | Monitoring stack containers on the EDGEPROXY-INTERNAL Docker network |
-| `dashboard-local` | 1 (catch-all) | Everything else | **BasicAuth** | **`API_WHITELIST`** | Operators via host loopback / SSH tunnel |
-| `dashboard-public` | 200 | `Host(${API_HOST})` on `web-secure` | **BasicAuth** | **`API_WHITELIST`** | Mode-3 only -- public-FQDN access over HTTPS |
-| `dashboard-public-http` | 200 | `Host(${API_HOST})` on `web` | (redirect only) | **`API_WHITELIST`** | Mode-3 only -- HTTP -> HTTPS redirect for the admin FQDN |
+| `dashboard-internal` | 300 | `ClientIP(100.64.0.0/16)` OR `ClientIP(fdff:100:64::/64)` | **No** | **No** | Monitoring stack containers on the EDGEPROXY-INTERNAL Docker network |
+| `dashboard-public` | 300 | `Host(${API_HOST})` on `web-secure` | **BasicAuth** | **`API_WHITELIST`** | Mode-3 only -- public-FQDN access over HTTPS |
+| `dashboard-public-http` | 300 | `Host(${API_HOST})` on `web` | (redirect only) | **`API_WHITELIST`** | Mode-3 only -- HTTP -> HTTPS redirect for the admin FQDN |
+| `dashboard-local` | 200 (catch-all) | Everything else | **BasicAuth** | **`API_WHITELIST`** | Operators via host loopback / SSH tunnel |
 
 All four admin routers carry **explicit priorities**, not Traefik's
 default rule-length scoring. Implicit scoring is deterministic but
@@ -164,14 +164,56 @@ backtick spacing, etc.) silently changes the score and can flip
 which router wins. Explicit priorities pin the intent so future
 edits cannot shadow each other unexpectedly.
 
-The hierarchy is two-tier on purpose:
+### Three-tier priority hierarchy
 
-- **200** = "intercepts a specific case" -- the internal-network
-  bypass, and the admin FQDN. Any plausible default-scored app
-  router tops out around ~150, so admin always wins.
-- **1** = "literally the fallback." Anyone adding a new router on
-  the `api` entrypoint only needs priority >= 2 to take precedence
-  cleanly, without having to outguess implicit rule scores.
+- **300** = "must intercept this specific case." Internal-network
+  bypass and the admin FQDN sit here. Beats both the catch-all
+  admin gate and any app router, regardless of how long an app's
+  rule string scores by length.
+- **200** = "catch-all admin gate, beats any app." Sits above the
+  realistic implicit-priority maximum (~150 for typical apps with
+  Host + Path + Method + Headers rules), so an app accidentally
+  exposed on the `api` entrypoint cannot bypass the BasicAuth +
+  whitelist gate by having a long rule.
+- **1 ... ~150** = "everything else." Apps either run with implicit
+  scoring (rule-length-based) or set their own explicit priority.
+
+Adding a new router on the `api` entrypoint that should take
+precedence over `dashboard-local` (e.g. an additional internal
+intercept): priority >= 250. Fully-controlled overrides that need
+to beat even the intercepts (test routers, debug paths): 400+.
+
+### Fail-closed for unset `API_HOST`
+
+When `API_HOST` is empty in `.env` (the default — modes 1 and 2),
+the public-FQDN routers must NOT match any real traffic. The
+naive `${API_HOST:+...}` shell pattern *appears* to do this — when
+the variable is empty, the rule string evaluates to empty — but
+Traefik then falls back to the docker provider's auto-generated
+default rule, and the router silently activates against the
+container's name.
+
+The actual fail-closed pattern uses `${API_HOST:-fallback}` with
+a never-match placeholder:
+
+```yaml
+traefik.http.routers.dashboard-public.rule:
+  Host(`${API_HOST:-__api_host_not_set__.invalid}`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))
+```
+
+When `API_HOST` is set, the rule expands to the real FQDN. When
+unset, it expands to a Host rule pointing at the literal string
+`__api_host_not_set__.invalid`. RFC 2606 reserves the `.invalid`
+TLD — no DNS entry for any `.invalid` host can ever exist, so no
+real client request will arrive with a matching Host header. The
+placeholder name itself also serves as documentation: an operator
+who sees this rule in the dashboard knows immediately that they
+should set `API_HOST`
+in `.env` to enable mode 3.
+
+The pattern is contained in the affected router rules only -- no
+global Traefik configuration change. Other apps in the stack are
+unaffected.
 
 The split has three concrete benefits:
 

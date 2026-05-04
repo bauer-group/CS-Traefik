@@ -91,20 +91,35 @@ services:
       # explicit priorities on every admin-related router so future edits
       # cannot shadow each other unexpectedly.
       #
-      #   dashboard-internal     200   intercepts proxy-internal CIDRs on `api`
-      #   dashboard-public       200   admin FQDN on `web-secure` (mode 3)
-      #   dashboard-public-http  200   admin FQDN on `web` (HTTP -> HTTPS redirect)
-      #   dashboard-local          1   catch-all fallback on `api` (BasicAuth gate)
+      #   dashboard-internal     300   intercepts proxy-internal CIDRs on `api`
+      #   dashboard-public       300   admin FQDN on `web-secure` (mode 3)
+      #   dashboard-public-http  300   admin FQDN on `web` (HTTP -> HTTPS redirect)
+      #   dashboard-local        200   catch-all admin gate on `api` (BasicAuth + whitelist)
       #
-      # Why 200 vs 1 (and nothing in between)?
-      #   * 200 is well above any plausible default-scored app router on the
-      #     same entrypoint. Even an app with `Host(...) && Path(...) && ...`
-      #     rules tops out around ~150 implicit. Admin always wins.
-      #   * 1 is "literally the fallback." Any new router on the api
-      #     entrypoint that wants to take precedence cleanly only needs
-      #     priority >= 2 -- no need to outguess implicit rule scores.
-      #   * Single layer between (no 50/100/150 noise) keeps the hierarchy
-      #     readable at a glance.
+      # Why 300 / 200 instead of e.g. 200 / 1?
+      #
+      # Implicit (rule-length-scored) priorities for typical app routers
+      # range up to ~150 -- a maximally specific `Host(\`a.b.com\`) &&
+      # PathPrefix(\`/api\`) && Method(\`GET\`,\`POST\`) && Headers(...)`
+      # rule lands somewhere around 100-150. The catch-all admin gate
+      # MUST sit above this implicit max, otherwise an app accidentally
+      # added on the `api` entrypoint with a long rule could outrank it
+      # and bypass BasicAuth + whitelist. Priority 200 gives a 50-point
+      # safety margin.
+      #
+      # Intercept routers (dashboard-internal, dashboard-public[-http])
+      # need to win over the catch-all gate AND over any app -- so they
+      # sit at 300, another 100-point margin above the catch-all.
+      #
+      # Three-tier hierarchy keeps the intent readable:
+      #   * 300 = "must intercept this specific case"
+      #   * 200 = "fallback admin gate, beats any app"
+      #   * 1 ... ~150 = "everything else (apps, implicit-scored)"
+      #
+      # New routers on the api entrypoint that should take precedence over
+      # dashboard-local need priority >= 250. Fully-controlled override
+      # cases (test routers, debug-only paths) can use 400+ to beat even
+      # the intercepts.
       # =========================================================================
 
       # ---- Internal-network dashboard (no auth, no whitelist gate) ----
@@ -124,7 +139,7 @@ services:
       traefik.http.routers.dashboard-internal.rule: "(PathPrefix(`/api`) || PathPrefix(`/dashboard`)) && (ClientIP(`100.64.0.0/16`) || ClientIP(`fdff:100:64::/64`))"
       traefik.http.routers.dashboard-internal.entrypoints: "api"
       traefik.http.routers.dashboard-internal.service: "api@internal"
-      traefik.http.routers.dashboard-internal.priority: "200"
+      traefik.http.routers.dashboard-internal.priority: "300"
       traefik.http.routers.dashboard-internal.middlewares: "dashboard-redirect"
 
       # ---- Localhost dashboard (BasicAuth + IP whitelist, on `api` entrypoint) ----
@@ -133,29 +148,43 @@ services:
       # Internal-network requests are intercepted by dashboard-internal above
       # before they reach this router.
       #
-      # Priority 1 = explicit fallback. Adding a new router on the `api`
-      # entrypoint that should take precedence only needs priority >= 2.
+      # Priority 200 = "catch-all admin gate, beats any app." Sits above
+      # the implicit-priority max (~150) of even the most specific
+      # default-scored app rule. Any app accidentally exposed on the `api`
+      # entrypoint cannot bypass the BasicAuth + whitelist gate just by
+      # having a long rule string. Override only with explicit priority
+      # >= 250 if you really mean to.
       traefik.http.routers.dashboard-local.rule: "PathPrefix(`/api`) || PathPrefix(`/dashboard`)"
       traefik.http.routers.dashboard-local.entrypoints: "api"
       traefik.http.routers.dashboard-local.service: "api@internal"
-      traefik.http.routers.dashboard-local.priority: "1"
+      traefik.http.routers.dashboard-local.priority: "200"
       traefik.http.routers.dashboard-local.middlewares: "api-auth,api-whitelist,dashboard-redirect"
 
       # ---- Public dashboard (only when API_HOST is set in .env) ----
-      # The `${API_HOST:+...}` syntax: empty when API_HOST is unset, so the
-      # rule becomes empty and Traefik discards the router as invalid.
-      # That is the intended fail-closed behaviour.
+      # Fail-closed when API_HOST is unset: the rule resolves to
+      # `Host(\`__api_host_not_set__.invalid\`)`, which never matches any
+      # real client request because `.invalid` is RFC 2606 reserved and
+      # cannot resolve in DNS. The router is technically active but
+      # unreachable -- exactly the desired "mode-3 disabled" state.
       #
-      # Priority 200 protects the admin FQDN from being shadowed by an app
+      # We use `${VAR:-fallback}` (not the previous `${VAR:+...}`) because
+      # an empty rule string causes Traefik to fall back to the docker
+      # provider's default rule `Host(\`{{normalize .Name}}\`)`, which would
+      # silently route on the container name -- the OPPOSITE of fail-closed.
+      # The placeholder hostname pattern is local to this single router,
+      # so there is no global behaviour change for any other apps in the
+      # stack.
+      #
+      # Priority 300 protects the admin FQDN from being shadowed by an app
       # router that uses `HostRegexp(\`.*\`)` or another wide matcher on the
-      # same entrypoint. With explicit 200 the admin always wins on its
-      # FQDN regardless of how an app's rule string scores by length.
-      traefik.http.routers.dashboard-public.rule: "${API_HOST:+Host(\\`${API_HOST}\\`) && (PathPrefix(\\`/api\\`) || PathPrefix(\\`/dashboard\\`))}"
+      # same entrypoint -- well above any plausible default-scored app rule
+      # (which top out around ~150 by rule-string length).
+      traefik.http.routers.dashboard-public.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
       traefik.http.routers.dashboard-public.entrypoints: "web-secure"
       traefik.http.routers.dashboard-public.service: "api@internal"
       traefik.http.routers.dashboard-public.tls: "true"
       traefik.http.routers.dashboard-public.tls.certresolver: "letsencrypt"
-      traefik.http.routers.dashboard-public.priority: "200"
+      traefik.http.routers.dashboard-public.priority: "300"
       traefik.http.routers.dashboard-public.middlewares: "api-auth,api-whitelist,dashboard-redirect"
 
       # ---- Public dashboard HTTP redirect (only when API_HOST is set) ----
@@ -164,13 +193,15 @@ services:
       # redirect itself isn't visible to non-whitelisted clients.
       # No global entrypoint redirect: app stacks decide per-router.
       #
-      # Priority 200 -- same FQDN-shadow protection as dashboard-public.
-      # Note this rule is just `Host(...)` (no path filter) so its implicit
-      # priority is short -- explicit 200 is especially important here.
-      traefik.http.routers.dashboard-public-http.rule: "${API_HOST:+Host(\\`${API_HOST}\\`)}"
+      # Same fail-closed pattern as dashboard-public above: when API_HOST
+      # is unset, the rule becomes `Host(\`__api_host_not_set__.invalid\`)`
+      # which cannot match any real client request.
+      #
+      # Priority 300 -- same FQDN-shadow protection as dashboard-public.
+      traefik.http.routers.dashboard-public-http.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`)"
       traefik.http.routers.dashboard-public-http.entrypoints: "web"
       traefik.http.routers.dashboard-public-http.service: "api@internal"
-      traefik.http.routers.dashboard-public-http.priority: "200"
+      traefik.http.routers.dashboard-public-http.priority: "300"
       traefik.http.routers.dashboard-public-http.middlewares: "api-whitelist,https-redirect@file"
 
       # ---- Middlewares used by both routers above ----
