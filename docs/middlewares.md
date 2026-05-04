@@ -234,25 +234,34 @@ an example; copy and override per-router with your specific prefix.
 
 ### `compression`
 
-Honours `Accept-Encoding` from the client. Excludes types that
-should not be compressed (Server-Sent Events, already-compressed
-media):
+Honours `Accept-Encoding` from the client. Negotiates one of gzip,
+Brotli, or Zstandard depending on what the client supports. Excludes
+types that should not be compressed (Server-Sent Events, already-
+compressed media).
 
-```yaml
-compression:
-  compress:
-    excludedContentTypes:
-      - text/event-stream
-      - image/jpeg
-      - image/png
-      - image/webp
-      - video/mp4
-      - application/zip
-    minResponseBodyBytes: 1024
-```
+**`minResponseBodyBytes: 50`** — sits at the technical minimum
+below which compression actively *hurts*:
 
-Don't apply to login / authenticated form endpoints — BREACH attack
-class.
+| Encoding | Header overhead | Minimum useful body |
+| --- | --- | --- |
+| gzip | 10-18 bytes | ~48 bytes |
+| Brotli | 14-20 bytes | ~50 bytes |
+| Zstandard | ~18 bytes | ~50 bytes |
+
+Traefik's `compress` middleware uses a single threshold across all
+encodings, so 50 is the safe choice. Smaller responses (tiny error
+messages, status-only API responses) pass through uncompressed —
+prevents the bizarre case where a 30-byte response becomes 50 bytes
+after "compression".
+
+**Don't apply** to login / authenticated form endpoints — BREACH
+attack class. The `hardened-login` chain explicitly omits compression
+for that reason.
+
+**Don't apply** to S3 / MinIO routes — the responses are typically
+already-encoded binary objects, and re-compression burns CPU for zero
+gain. The excluded content types list covers JPEG, PNG, WebP, AVIF,
+GIF, MP4, WebM, OGG, ZIP, GZ, BZ2, 7z, RAR, and TAR.
 
 ## Auth helpers
 

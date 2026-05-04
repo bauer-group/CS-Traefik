@@ -424,6 +424,22 @@ http:
     # Safe to apply broadly. Honours Accept-Encoding from the client and
     # excludes types that must not be compressed (Server-Sent Events,
     # already-compressed media).
+    #
+    # `minResponseBodyBytes: 50` sits at the technical minimum below
+    # which compression actively HURTS:
+    #   * gzip header overhead is 10-18 bytes -- compressed output below
+    #     ~48 bytes is larger than the original.
+    #   * Brotli / Zstandard headers are ~14-20 bytes -- minimum useful
+    #     compressed size is ~50 bytes.
+    # Traefik's compress middleware uses ONE threshold for all
+    # encodings, so 50 is the safe choice across gzip / Brotli / zstd.
+    # Smaller responses (tiny error messages, status-only responses)
+    # pass through uncompressed -- prevents the bizarre case where a
+    # 30-byte response becomes 50 bytes after "compression".
+    #
+    # Excluded content types: SSE (must not be buffered), and types
+    # that are already compressed (re-compression burns CPU for zero
+    # gain).
     compression:
       compress:
         excludedContentTypes:
@@ -431,9 +447,19 @@ http:
           - image/jpeg
           - image/png
           - image/webp
+          - image/avif
+          - image/gif
           - video/mp4
+          - video/webm
+          - audio/mpeg
+          - audio/ogg
           - application/zip
-        minResponseBodyBytes: 1024
+          - application/gzip
+          - application/x-bzip2
+          - application/x-7z-compressed
+          - application/x-rar-compressed
+          - application/x-tar
+        minResponseBodyBytes: 50
 
 
     # =========================================================================

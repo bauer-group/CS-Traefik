@@ -39,6 +39,9 @@ Values:
 | `HTTPS_PORT` | `443` | External HTTPS port. Used for both TCP (HTTP/1.1, HTTP/2) and UDP (HTTP/3 / QUIC). |
 | `LOG_LEVEL` | `INFO` | One of `ERROR / WARN / INFO / DEBUG / TRACE`. DEBUG logs every routing decision -- use only for active debugging. |
 | `ACCESS_LOG_FORMAT` | `json` | `common` (Apache combined) or `json`. JSON works with Loki / Promtail label parsing. |
+| `WEB_READ_TIMEOUT` | `0s` | Max time to read a request body. `0s` = unlimited (required for S3/MinIO multipart, large uploads). Bump to e.g. `600s` for slowloris hardening. |
+| `WEB_WRITE_TIMEOUT` | `0s` | Max time to write a response. `0s` = unlimited (required for SSE / streaming). |
+| `WEB_IDLE_TIMEOUT` | `300s` | Idle keepalive timeout. 5 min covers most WebSocket apps without aggressive heartbeats. Bump to `600s` for IoT / MQTT-over-WS; lower to `60s` for memory-tight setups. |
 
 ## Admin access (`api` entrypoint)
 
@@ -63,7 +66,7 @@ See [`admin-access.md`](admin-access.md) for the three usage modes
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `LETSENCRYPT_EMAIL` | `admin@example.com` | ACME registration + expiry notifications. **Required**. |
+| `LETSENCRYPT_EMAIL` | `info@bauer-group.com` | ACME registration + expiry notifications. **Required**. Override per deployment in `.env`. |
 | `LETSENCRYPT_CA` | `https://acme-v02.api.letsencrypt.org/directory` | Production endpoint. Switch to `https://acme-staging-v02.api.letsencrypt.org/directory` while testing to avoid the production rate limit (5 duplicate certs/week). |
 
 Four resolvers are pre-wired in [`config/traefik/traefik.yml`](../config/traefik/traefik.yml):

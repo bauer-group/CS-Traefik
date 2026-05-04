@@ -133,40 +133,58 @@ entryPoints:
       middlewares:
         - bg-provider@file
     transport:
-      # respondingTimeouts -- byte-compatible with the legacy v2
-      # EDGEPROXY stack. Traefik v3 introduced a NEW default
-      # readTimeout=60s (v2 default was 0s = unlimited) -- many v2->v3
-      # migrations get bitten by this silently because legitimate slow
-      # uploads / SSE / webhooks suddenly 504. We override it back.
+      # respondingTimeouts -- env-configurable so each deployment can
+      # tune to its specific workload without editing this file.
+      # Defaults match the legacy v2 EDGEPROXY stack (read=0s, write=0s)
+      # plus a slightly more WebSocket-friendly idle (300s vs legacy
+      # 180s). All three values come from .env.
       #
-      #   readTimeout=0s   -- no upper bound on how long a request body
-      #                       can take. Required for: large file uploads
-      #                       over slow links (S3 multipart on mobile),
-      #                       MinIO presigned-URL pushes, video uploads,
-      #                       webhooks with long-running server logic.
-      #   writeTimeout=0s  -- no upper bound on how long the response
-      #                       can take. Required for: SSE / event-stream
-      #                       responses, streaming downloads, slow
-      #                       backends responding to large queries.
-      #   idleTimeout=180s -- close keepalive connections that haven't
-      #                       seen activity for 3 minutes. Same as
-      #                       legacy. WebSocket apps that need longer
-      #                       (Slack-like presence, MQTT-over-WS) should
-      #                       send heartbeats inside the 3-minute window.
+      #   WEB_READ_TIMEOUT  (default 0s)   -- no upper bound on how long
+      #                                       a request body can take.
+      #                                       Required for: large file
+      #                                       uploads over slow links
+      #                                       (S3 multipart on mobile),
+      #                                       MinIO presigned-URL pushes,
+      #                                       video uploads, webhooks
+      #                                       with long-running server
+      #                                       logic.
+      #
+      #   WEB_WRITE_TIMEOUT (default 0s)   -- no upper bound on how long
+      #                                       the response can take.
+      #                                       Required for: SSE /
+      #                                       event-stream responses,
+      #                                       streaming downloads, slow
+      #                                       backends responding to
+      #                                       large queries.
+      #
+      #   WEB_IDLE_TIMEOUT  (default 300s) -- close keepalive connections
+      #                                       that haven't seen activity
+      #                                       for 5 minutes. Bumped from
+      #                                       legacy 180s so WebSocket
+      #                                       apps that don't ping every
+      #                                       3 minutes don't get
+      #                                       prematurely cut. Apps with
+      #                                       MQTT-over-WS / Slack-like
+      #                                       presence should still
+      #                                       send heartbeats well within
+      #                                       this window. Memory cost
+      #                                       of half-dead connections
+      #                                       is negligible (~1 KB
+      #                                       each).
       #
       # Slowloris-style attacks are theoretically possible with
       # readTimeout=0, but require holding open thousands of slow
       # connections. Modern Go HTTP server + OS-level connection limits
       # (sysctl net.ipv4.tcp_max_syn_backlog, ulimit nofile) defend
-      # against this in practice. If your threat model genuinely
-      # requires it, set readTimeout=600s (10 min) -- still allows
+      # against this in practice. If your threat model requires a hard
+      # cap, set WEB_READ_TIMEOUT=600s (10 min) in .env -- still allows
       # 100MB uploads on 128 kbit/s mobile but caps single-connection
       # hold time. Production-tested in BG environments for years
       # without slowloris incidents.
       respondingTimeouts:
-        readTimeout: 0s
-        writeTimeout: 0s
-        idleTimeout: 180s
+        readTimeout: "${WEB_READ_TIMEOUT:-0s}"
+        writeTimeout: "${WEB_WRITE_TIMEOUT:-0s}"
+        idleTimeout: "${WEB_IDLE_TIMEOUT:-300s}"
 
   web-secure:
     address: ":443/tcp"
@@ -180,13 +198,13 @@ entryPoints:
     http3:
       advertisedPort: 443
     transport:
-      # See `web` block above for the full rationale -- same values for
+      # See `web` block for the full rationale -- same values for
       # HTTPS so behaviour is identical regardless of which entrypoint
-      # the request hits.
+      # the request hits. Env-driven via the same WEB_*_TIMEOUT vars.
       respondingTimeouts:
-        readTimeout: 0s
-        writeTimeout: 0s
-        idleTimeout: 180s
+        readTimeout: "${WEB_READ_TIMEOUT:-0s}"
+        writeTimeout: "${WEB_WRITE_TIMEOUT:-0s}"
+        idleTimeout: "${WEB_IDLE_TIMEOUT:-300s}"
 
   api:
     address: ":9090/tcp"
@@ -257,7 +275,7 @@ certificatesResolvers:
   # HTTP-01 from now on.
   letsencrypt:
     acme:
-      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      email: "${LETSENCRYPT_EMAIL:-info@bauer-group.com}"
       caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
       storage: /etc/traefik/certs/letsencrypt/letsencrypt.json
       keyType: EC256
@@ -267,7 +285,7 @@ certificatesResolvers:
   # ---- 2. TLS-ALPN-01 (fallback) ---------------------------------------------
   letsencrypt-tls:
     acme:
-      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      email: "${LETSENCRYPT_EMAIL:-info@bauer-group.com}"
       caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
       storage: /etc/traefik/certs/letsencrypt/letsencrypt-tls.json
       keyType: EC256
@@ -287,7 +305,7 @@ certificatesResolvers:
   # Reference: https://doc.traefik.io/traefik/https/acme/#providers
   letsencrypt-dns:
     acme:
-      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      email: "${LETSENCRYPT_EMAIL:-info@bauer-group.com}"
       caServer: "${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}"
       storage: /etc/traefik/certs/letsencrypt/letsencrypt-dns.json
       keyType: EC256
@@ -316,7 +334,7 @@ certificatesResolvers:
   # (5 duplicate certs/week, 50 certs/account/week).
   letsencrypt-staging:
     acme:
-      email: "${LETSENCRYPT_EMAIL:-admin@example.com}"
+      email: "${LETSENCRYPT_EMAIL:-info@bauer-group.com}"
       caServer: https://acme-staging-v02.api.letsencrypt.org/directory
       storage: /etc/traefik/certs/letsencrypt/letsencrypt-staging.json
       keyType: EC256
