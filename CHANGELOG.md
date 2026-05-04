@@ -1,3 +1,9 @@
+## [0.4.2](https://github.com/bauer-group/CS-Traefik/compare/v0.4.1...v0.4.2) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* **admin-access:** whitelisted EDGEPROXY-INTERNAL subnet so monitoring stack can reach admin endpoints ([a4a6411](https://github.com/bauer-group/CS-Traefik/commit/a4a64116387d22a5a41d7342894734de7b81af3b))
+
 ## [0.4.1](https://github.com/bauer-group/CS-Traefik/compare/v0.4.0...v0.4.1) (2026-05-04)
 
 ### 🐛 Bug Fixes
