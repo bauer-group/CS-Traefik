@@ -1,3 +1,9 @@
+## [0.5.2](https://github.com/bauer-group/CS-Traefik/compare/v0.5.1...v0.5.2) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* **admin-access:** three-tier priorities + local fail-closed pattern for unset API_HOST ([373d3d9](https://github.com/bauer-group/CS-Traefik/commit/373d3d9313e29ef478231bb04d153440be5ac692))
+
 ## [0.5.1](https://github.com/bauer-group/CS-Traefik/compare/v0.5.0...v0.5.1) (2026-05-04)
 
 ### 🐛 Bug Fixes
