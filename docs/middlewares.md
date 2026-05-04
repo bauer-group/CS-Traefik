@@ -373,3 +373,21 @@ file provider has `watch: true`).
 See [`custom-config.md`](custom-config.md) for the file-provider
 pattern and [`examples/on-prem-vm-via-file-provider.md`](examples/on-prem-vm-via-file-provider.md)
 for a worked example.
+
+## External plugins (CrowdSec, GeoBlock, Sablier, ...)
+
+The middlewares above are all built into the Traefik binary --
+zero external dependencies. For threat-intel IP blocking
+(CrowdSec), country-level filtering (GeoBlock), or scale-to-zero
+on-demand container wake (Sablier), Traefik supports external
+plugins from [plugins.traefik.io](https://plugins.traefik.io).
+
+**Plugins are NOT enabled by default** in this stack -- the
+standard `traefik.yml` ships with no `experimental.plugins:`
+block, so there is no first-boot download cost and no exposure
+to plugin-registry availability out of the box.
+
+See [`plugins.md`](plugins.md) for the activation recipe (declare
+in `traefik.yml` + restart + reference via per-app Docker labels)
+and ready-to-paste configurations for the three recommended
+plugins.

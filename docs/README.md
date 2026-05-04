@@ -25,6 +25,7 @@ install -- this directory holds the in-depth material.
 | Doc | What's in it |
 | --- | --- |
 | [`middlewares.md`](middlewares.md) | Full catalog of opt-in middlewares (security headers, CORS, rate-limits, retry, circuit-breaker, forward-auth, ...). |
+| [`plugins.md`](plugins.md) | Optional Traefik plugins (CrowdSec / GeoBlock / Sablier) -- recipes for declaration, activation, and per-app instantiation. NOT enabled by default. |
 | [`custom-config.md`](custom-config.md) | The file-provider for routes that aren't in Docker labels (VMs, on-prem, external SaaS). |
 
 ## Observability
