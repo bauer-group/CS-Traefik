@@ -1,3 +1,9 @@
+## [0.4.1](https://github.com/bauer-group/CS-Traefik/compare/v0.4.0...v0.4.1) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* **security+docs:** rotated example BCrypt hash and corrected bg-provider reach claim ([a19784d](https://github.com/bauer-group/CS-Traefik/commit/a19784d05b587297732ecea0c96ed40073e5030d))
+
 ## [0.4.0](https://github.com/bauer-group/CS-Traefik/compare/v0.3.2...v0.4.0) (2026-05-04)
 
 ### 🚀 Features
