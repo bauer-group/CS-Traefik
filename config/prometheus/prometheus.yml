@@ -39,10 +39,12 @@ scrape_configs:
         labels:
           service: prometheus
 
-  # Traefik metrics endpoint (entryPoints.metrics in traefik.yml)
+  # Traefik metrics endpoint (entryPoints.metrics in traefik.yml).
+  # Container-port 9080 -- intentionally NOT 9100 to avoid name-clash
+  # with prom/node-exporter (which conventionally lives on :9100).
   - job_name: traefik
     static_configs:
-      - targets: ["traefik:9100"]
+      - targets: ["traefik:9080"]
         labels:
           service: traefik
 

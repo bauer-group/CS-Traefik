@@ -1,9 +1,3 @@
-## [0.1.3](https://github.com/bauer-group/CS-Traefik/compare/v0.1.2...v0.1.3) (2026-05-04)
-
-### 🐛 Bug Fixes
-
-* **timeouts:** restored legacy v2 respondingTimeouts on web entrypoints ([aa3068b](https://github.com/bauer-group/CS-Traefik/commit/aa3068be93eac334c310dcd967119748a752deed))
-
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
@@ -12,23 +6,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-* `respondingTimeouts` on `web` + `web-secure` entrypoints reset to the
-  legacy v2 EDGEPROXY values: `readTimeout=0s`, `writeTimeout=0s`,
-  `idleTimeout=180s`. The previous 60s/60s/180s defaults silently broke:
-  * Large file uploads over slow / mobile links (DocumentSigning S3
-    multipart pushes via MinIO routinely take >60s for 100MB+ PDFs).
-  * Server-Sent Events (SSE) / streaming responses that need to hold
-    the connection open for minutes.
-  * Webhooks with long-running server-side logic (signing seal,
-    document conversion).
-  Note: Traefik v3 ships a new default of `readTimeout=60s` (v2 default
-  was `0s`) -- this is a v2→v3 migration footgun the upstream changelog
-  doesn't highlight loudly. We override back to v2 behaviour for
-  byte-for-byte compat with the legacy stack. Slowloris consideration
-  documented in `traefik.yml`; in BG production environments the legacy
-  values have been used for years without incident.
+* Traefik internal `metrics` entrypoint moved from container-port `9100`
+  to `9080` to match the legacy v2 EDGEPROXY convention and avoid name
+  clashing with prom/node-exporter (which conventionally listens on
+  `:9100`). The metrics port is internal-only (not exposed to the host)
+  -- the only consumer is Prometheus scraping over the proxy-internal
+  network. Both `traefik.yml` and `prometheus.yml` updated; no
+  external-facing change for app stacks.
+
+## [0.1.3](https://github.com/bauer-group/CS-Traefik/compare/v0.1.2...v0.1.3) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* **timeouts:** restored legacy v2 respondingTimeouts on web entrypoints ([aa3068b](https://github.com/bauer-group/CS-Traefik/commit/aa3068be93eac334c310dcd967119748a752deed))
 
 ## [0.1.2](https://github.com/bauer-group/CS-Traefik/compare/v0.1.1...v0.1.2) (2026-05-04)
 

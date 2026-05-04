@@ -84,14 +84,20 @@ ping:
 #
 #   web         -> public HTTP  (port 80,  redirects to HTTPS by default)
 #   web-secure  -> public HTTPS (port 443, with HTTP/3 / QUIC over UDP/443)
-#   api         -> internal-only admin entrypoint (default 127.0.0.1:9090).
-#                  All admin UIs (dashboard, Grafana, Prometheus, ...) are
-#                  routed here behind BasicAuth + IP whitelist + rate-limit.
-#                  Bind interface is set via API_BIND in .env; 127.0.0.1
-#                  is the secure default. Set 0.0.0.0 only if you need
-#                  LAN-side access (still BasicAuth-protected).
-#   metrics     -> internal-only, scraped by Prometheus
-#   ping        -> internal-only, container healthcheck
+#   api         -> admin UIs (dashboard, Grafana, Prometheus, Alertmanager).
+#                  Container-port 9090, host-port ${API_BIND}:${API_PORT}.
+#                  9090 matches the legacy ${API_PORT} convention.
+#   metrics     -> Prometheus scrape target on container-port 9080.
+#                  Internal-only -- not exposed to the host. The port is
+#                  9080 (not 9100) deliberately: 9100 is the well-known
+#                  port for prom/node-exporter, and having both Traefik
+#                  and node-exporter as `:9100` targets in prometheus.yml
+#                  is confusing during debugging. Matches the legacy
+#                  EDGEPROXY v2 stack which used 9080 for the same reason.
+#   ping        -> container HEALTHCHECK target on container-port 8082.
+#                  Internal-only, never exposed. Only `traefik healthcheck
+#                  --ping` reaches it on loopback. 8082 follows Traefik
+#                  docs convention; the value is arbitrary.
 entryPoints:
 
   web:
@@ -169,7 +175,7 @@ entryPoints:
     address: ":9090/tcp"
 
   metrics:
-    address: ":9100/tcp"
+    address: ":9080/tcp"
 
   ping:
     address: ":8082/tcp"
@@ -305,7 +311,7 @@ certificatesResolvers:
 # Metrics (Prometheus)
 # -----------------------------------------------------------------------------
 # Exposed on the `metrics` entry point. The monitoring profile attaches
-# Prometheus to the proxy-internal network so it can scrape :9100 without
+# Prometheus to the proxy-internal network so it can scrape :9080 without
 # the metrics port being publicly reachable.
 metrics:
   prometheus:
