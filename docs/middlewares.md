@@ -239,20 +239,26 @@ Brotli, or Zstandard depending on what the client supports. Excludes
 types that should not be compressed (Server-Sent Events, already-
 compressed media).
 
-**`minResponseBodyBytes: 50`** — sits at the technical minimum
-below which compression actively *hurts*:
+**`minResponseBodyBytes: 256`** — pragmatic sweet-spot, NOT the
+mathematical minimum. The math says ~50 bytes is where gzip / Brotli /
+Zstandard output stops being *larger* than the original (header
+overhead is 10-20 bytes), but that threshold ignores three real costs:
 
-| Encoding | Header overhead | Minimum useful body |
-| --- | --- | --- |
-| gzip | 10-18 bytes | ~48 bytes |
-| Brotli | 14-20 bytes | ~50 bytes |
-| Zstandard | ~18 bytes | ~50 bytes |
+| Cost | Why it matters below ~256 bytes |
+| --- | --- |
+| `Content-Encoding` response header (~25 bytes) | Adding it eats most of the wire saving on tiny payloads |
+| Single TCP segment (MSS ~1460 bytes) | Sub-kilobyte responses fit in one packet either way — no packet saved |
+| Fixed CPU per compression call (encoder setup, buffer alloc, encoding negotiation) | Paid regardless of body size — bad trade against a 15-byte saving |
 
-Traefik's `compress` middleware uses a single threshold across all
-encodings, so 50 is the safe choice. Smaller responses (tiny error
-messages, status-only API responses) pass through uncompressed —
-prevents the bizarre case where a 30-byte response becomes 50 bytes
-after "compression".
+256 is where compression starts paying off in *both* bandwidth and CPU
+terms for typical JSON / HTML / text payloads. Tiny status-only
+responses (`{"status":"ok"}`, 401 error bodies, health probes) pass
+through uncompressed — they were never the bandwidth problem.
+
+For reference: Traefik's own default is **1024**, AWS ALB is **1024**,
+Caddy is **512**. We sit slightly more aggressive than industry
+default because mobile-first workloads with many small-but-not-tiny
+JSON responses do benefit from the 256-1024 range.
 
 **Don't apply** to login / authenticated form endpoints — BREACH
 attack class. The `hardened-login` chain explicitly omits compression

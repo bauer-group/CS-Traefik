@@ -425,17 +425,31 @@ http:
     # excludes types that must not be compressed (Server-Sent Events,
     # already-compressed media).
     #
-    # `minResponseBodyBytes: 50` sits at the technical minimum below
-    # which compression actively HURTS:
-    #   * gzip header overhead is 10-18 bytes -- compressed output below
-    #     ~48 bytes is larger than the original.
-    #   * Brotli / Zstandard headers are ~14-20 bytes -- minimum useful
-    #     compressed size is ~50 bytes.
-    # Traefik's compress middleware uses ONE threshold for all
-    # encodings, so 50 is the safe choice across gzip / Brotli / zstd.
-    # Smaller responses (tiny error messages, status-only responses)
-    # pass through uncompressed -- prevents the bizarre case where a
-    # 30-byte response becomes 50 bytes after "compression".
+    # `minResponseBodyBytes: 256` is a pragmatic sweet-spot, NOT the
+    # mathematical minimum. The math says ~50 bytes is where gzip /
+    # Brotli / zstd output stops being LARGER than the original (header
+    # overhead is 10-20 bytes), but that's a strawman threshold:
+    #
+    #   * Compressing a 60-byte payload to 45 bytes saves 15 bytes on
+    #     the wire -- but adds the `Content-Encoding: gzip` response
+    #     header (~25 bytes), so the NET wire saving is negative.
+    #   * Tiny responses fit in a single TCP segment anyway (MSS is
+    #     typically 1460 bytes), so sub-kilobyte compression does not
+    #     save a packet -- only bytes within the same packet.
+    #   * The fixed CPU cost per compression call (encoder setup,
+    #     buffer alloc, Accept-Encoding negotiation) is paid regardless
+    #     of body size -- amortising it over 50 bytes is a bad trade.
+    #
+    # 256 bytes is where compression starts paying off in BOTH bandwidth
+    # AND CPU terms for typical JSON / HTML / text payloads. Tiny
+    # status-only responses (`{"status":"ok"}`, 401 error bodies,
+    # health probes) pass through uncompressed -- they were not the
+    # bandwidth problem anyway.
+    #
+    # For reference: Traefik's own default is 1024, AWS ALB is 1024,
+    # Caddy is 512. We sit slightly more aggressive than industry
+    # default because mobile-first workloads with many small-but-not-
+    # tiny JSON responses do benefit from the 256-1024 range.
     #
     # Excluded content types: SSE (must not be buffered), and types
     # that are already compressed (re-compression burns CPU for zero
@@ -459,7 +473,7 @@ http:
           - application/x-7z-compressed
           - application/x-rar-compressed
           - application/x-tar
-        minResponseBodyBytes: 50
+        minResponseBodyBytes: 256
 
 
     # =========================================================================
