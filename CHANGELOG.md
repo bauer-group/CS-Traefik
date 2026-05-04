@@ -1,3 +1,9 @@
+## [0.5.1](https://github.com/bauer-group/CS-Traefik/compare/v0.5.0...v0.5.1) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* **admin-access:** pinned explicit priorities on all four admin routers to prevent silent shadowing ([249b970](https://github.com/bauer-group/CS-Traefik/commit/249b970d43169a38a7cc3e409fcfc8da4d6e3163))
+
 ## [0.5.0](https://github.com/bauer-group/CS-Traefik/compare/v0.4.2...v0.5.0) (2026-05-04)
 
 ### 🚀 Features
