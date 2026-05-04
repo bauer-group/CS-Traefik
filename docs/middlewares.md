@@ -260,14 +260,50 @@ Caddy is **512**. We sit slightly more aggressive than industry
 default because mobile-first workloads with many small-but-not-tiny
 JSON responses do benefit from the 256-1024 range.
 
-**Don't apply** to login / authenticated form endpoints — BREACH
-attack class. The `hardened-login` chain explicitly omits compression
-for that reason.
+### How to apply
 
-**Don't apply** to S3 / MinIO routes — the responses are typically
-already-encoded binary objects, and re-compression burns CPU for zero
-gain. The excluded content types list covers JPEG, PNG, WebP, AVIF,
-GIF, MP4, WebM, OGG, ZIP, GZ, BZ2, 7z, RAR, and TAR.
+Compression is **opt-in per router**. The proxy applies *nothing*
+globally to app traffic except the always-on `bg-provider` header — so
+without one of the patterns below, your app's responses go out
+**uncompressed**.
+
+Three equivalent ways, pick the one that fits your stack:
+
+```yaml
+# 1. Compression only -- minimal, no other middlewares.
+- "traefik.http.routers.myapp.middlewares=compression@file"
+
+# 2. Compression + a few hand-picked middlewares -- comma-separated,
+#    runs in the listed order.
+- "traefik.http.routers.myapp.middlewares=compression@file,nosniff@file,rate-limit@file"
+
+# 3. The hardened-public chain -- compression + the standard
+#    "sensible defaults for a public webapp" bundle (recommended for
+#    most HTML / JSON web apps).
+- "traefik.http.routers.myapp.middlewares=hardened-public@file"
+```
+
+Verify it's actually engaged:
+
+```bash
+curl -H "Accept-Encoding: gzip, br, zstd" -I https://app.example.com
+# Look for:  Content-Encoding: gzip   (or br / zstd)
+```
+
+If `Content-Encoding` is absent, either (a) the router has no
+compression middleware attached, or (b) the response body is below
+the 256-byte threshold, or (c) the response Content-Type matches an
+excluded type (SSE, JPEG, MP4, ZIP, ...).
+
+### When NOT to apply
+
+| Endpoint type | Why compression breaks it | Use instead |
+| --- | --- | --- |
+| Server-Sent Events (`text/event-stream`) | Compression buffers — events arrive in delayed bursts instead of streaming. The `excludedContentTypes` filter helps **only if** the backend sets `Content-Type: text/event-stream` correctly. Don't rely on that — omit the middleware entirely on SSE routes. | Plain router without compression, or a custom chain. |
+| Login / authenticated form endpoints | **BREACH attack class** — compression of HTTPS responses leaks secrets through length-based side channels when the response includes user input + a CSRF token. | `hardened-login@file` (explicitly omits compression). |
+| S3 / MinIO / object-storage routes | Object payloads are typically already-encoded binary blobs (JPEG, MP4, ZIP). Re-compression burns CPU for zero or negative gain. | `s3-streaming@file` (no compression, no buffering). |
+| WebSocket upgrades | Compression is negotiated separately at the WS layer (`permessage-deflate`). HTTP-level compression on the upgrade response is harmless but pointless. | Plain router or `hardened-public` minus `compression`. |
+| Webhook receivers / IoT POSTs | Some clients send `Accept-Encoding` incorrectly or not at all. Compression is for *responses*; webhook responses are usually 200 OK with no body. | Plain router. |
 
 ## Auth helpers
 
@@ -301,12 +337,32 @@ Starting points for common scenarios. Apply with:
 - "traefik.http.routers.foo.middlewares=hardened-public@file"
 ```
 
-| Chain | Includes | When |
+### Quick-reference: which chain for which app?
+
+If you're not sure which chain fits, start here:
+
+| Your app is... | Use | Notes |
 | --- | --- | --- |
-| `hardened-public` | `compression + hsts + frame-deny + nosniff + referrer-strict + server-scrub + rate-limit` | Public web app, modern browser audience. **Not for SSE / streaming** -- compression breaks SSE. |
-| `hardened-api` | `hsts-mild + nosniff + server-scrub + rate-limit + body-limit-10mb` | API backend with sensible body cap. |
-| `s3-streaming` | `rate-limit-permissive + server-scrub` | MinIO / S3 / large-file endpoints. **No buffering / body-limit** -- streaming is the default. |
-| `hardened-login` | `hsts + frame-deny + nosniff + referrer-noreferrer + server-scrub + rate-limit-strict` | Login / auth endpoints. **No compression** (BREACH). |
+| A standard public-facing HTML / JSON webapp | **`hardened-public@file`** | Default choice. Compression + HSTS + frame-deny + nosniff + referrer + server-scrub + rate-limit. |
+| A REST / JSON API backend (no browser UI) | **`hardened-api@file`** | Looser HSTS, no frame headers, 10 MB body cap, rate-limit. |
+| MinIO / S3 / object storage / large file endpoint | **`s3-streaming@file`** | No buffering, no compression, permissive rate-limit. Streaming-friendly. |
+| Login / OAuth / auth-form endpoint | **`hardened-login@file`** | Strict rate-limit, no compression (BREACH-safe), no-referrer policy. |
+| SSE dashboard / streaming HTTP / video | *None of the chains* — build manually | Avoid `compression`; consider `hsts-mild + nosniff + server-scrub` only. |
+| A WebSocket app | *None of the chains* — build manually | Same as SSE. WebSocket compression is negotiated at the WS layer separately. |
+| An internal-only / admin tool | Define your own at the router | Combine `forward-auth-authelia@file` (or `-authentik`) + IP whitelist labels. |
+
+When `none of the chains` is the right answer, copy the closest chain
+into your stack's labels and remove what doesn't fit. Chains are not
+sacred; they're starting points.
+
+### Detailed chain catalog
+
+| Chain | Includes | Use when | Avoid when |
+| --- | --- | --- | --- |
+| `hardened-public` | `compression + hsts + frame-deny + nosniff + referrer-strict + server-scrub + rate-limit` | Public webapp, modern browser audience. | App serves SSE / streaming responses, or login forms (BREACH). |
+| `hardened-api` | `hsts-mild + nosniff + server-scrub + rate-limit + body-limit-10mb` | REST / JSON API backend with bounded payload sizes. | API legitimately accepts >10 MB uploads (use `body-limit-100mb` or no limit). |
+| `s3-streaming` | `rate-limit-permissive + server-scrub` | MinIO / S3 / large-file endpoints, multipart uploads, streaming downloads. | Sensitive endpoints that need security headers — chain has none. |
+| `hardened-login` | `hsts + frame-deny + nosniff + referrer-noreferrer + server-scrub + rate-limit-strict` | Login / OAuth / password-reset endpoints. **Combine with IP whitelist** if exposed beyond trusted networks — `rate-limit-strict` (10 req/s) blocks legitimate CGNAT users without it. | Public registration / signup endpoint without IP gating. |
 
 ## Custom middlewares (file provider)
 
