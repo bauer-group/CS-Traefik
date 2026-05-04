@@ -1,3 +1,9 @@
+## [0.1.4](https://github.com/bauer-group/CS-Traefik/compare/v0.1.3...v0.1.4) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* **metrics:** moved Traefik metrics port 9100 -> 9080 (legacy + name clash) ([60c9b26](https://github.com/bauer-group/CS-Traefik/commit/60c9b26083bc5bee7f84e2bfbfdbf46c079d52c6))
+
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
