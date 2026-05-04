@@ -1,11 +1,24 @@
 # Configuration Reference
 
-Every variable in [`.env.example`](../.env.example), grouped by concern,
-with default value, semantics, and the side-effects of changing it.
+Every variable Compose reads, grouped by concern, with default value,
+semantics, and the side-effects of changing it.
 
-The wizard (`./install.sh` or `./traefik.sh setup`) generates a sane
-starting `.env`. This page documents what each value does so you can
-adjust safely.
+The shipped [`.env.example`](../.env.example) uses a dual layout:
+
+- **Active (uncommented)** — values without a sensible default
+  (`API_USERS`), stability pins (`STACK_NAME`, `NETWORK_NAME`,
+  `DATA_DIRECTORY`, `COMPOSE_PROFILES`), and security-baseline
+  overrides (`API_WHITELIST` set to localhost-only). These ship
+  enabled and apply to every deployment.
+- **Commented out** — every other configurable variable, with its
+  default value and a brief description. Uncomment the lines you
+  want to override. Operators get inline reference without leaving
+  the file.
+
+This page expands on the inline comments with full side-effect
+explanations and cross-references to the operational docs. The
+wizard (`./install.sh` or `./traefik.sh setup`) generates a sane
+starting `.env`.
 
 ## Stack identity
 
@@ -174,13 +187,18 @@ automatically.
 
 ## What NOT to set
 
-The `.env.example` documents these explicitly so you know they exist
-but don't need touching:
+A few knobs are intentionally NOT env-var-exposed at all -- they live
+in the static config files and changing them is a code edit, not an
+override:
 
 - `TRAEFIK_TRUSTED_IPS` — currently unused (kept for future
   forwarded-headers configuration).
 - The internal entrypoint ports (`8082` for metrics, `8081` for ping)
-  are container-internal-only and not exposed via env vars.
+  are container-internal-only.
 - TLS minimum version, cipher list — controlled in
-  [`config/traefik/dynamic/tls.yml`](../config/traefik/dynamic/tls.yml),
-  not in `.env`. See [`tls-and-certificates.md`](tls-and-certificates.md).
+  [`config/traefik/dynamic/tls.yml`](../config/traefik/dynamic/tls.yml).
+  See [`tls-and-certificates.md`](tls-and-certificates.md).
+- The router-priority hierarchy and the `__api_host_not_set__.invalid`
+  placeholder are hardcoded in `docker-compose.yml` -- they are
+  infrastructure constants, not policy. See
+  [`admin-access.md`](admin-access.md) for the rationale.
