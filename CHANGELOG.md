@@ -1,3 +1,9 @@
+## [0.5.3](https://github.com/bauer-group/CS-Traefik/compare/v0.5.2...v0.5.3) (2026-05-04)
+
+### ♻️ Refactoring
+
+* **env:** adopted dual-layout .env.example -- 6 active values, everything else commented with inline reference ([fbcdc7b](https://github.com/bauer-group/CS-Traefik/commit/fbcdc7b32449fd5811cc95499736c5d7605cb91c))
+
 ## [0.5.2](https://github.com/bauer-group/CS-Traefik/compare/v0.5.1...v0.5.2) (2026-05-04)
 
 ### 🐛 Bug Fixes
