@@ -1,3 +1,9 @@
+## [0.3.1](https://github.com/bauer-group/CS-Traefik/compare/v0.3.0...v0.3.1) (2026-05-04)
+
+### ♻️ Refactoring
+
+* **compression:** raised minResponseBodyBytes from 50 to 256 ([fd2385c](https://github.com/bauer-group/CS-Traefik/commit/fd2385c4cb5ee10a97b49a023c5b27fce0e05470))
+
 ## [0.3.0](https://github.com/bauer-group/CS-Traefik/compare/v0.2.0...v0.3.0) (2026-05-04)
 
 ### 🚀 Features
