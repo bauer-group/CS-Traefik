@@ -1,3 +1,9 @@
+## [0.3.0](https://github.com/bauer-group/CS-Traefik/compare/v0.2.0...v0.3.0) (2026-05-04)
+
+### 🚀 Features
+
+* tunable respondingTimeouts + tighter compression threshold + BG email default ([8e2e8ff](https://github.com/bauer-group/CS-Traefik/commit/8e2e8fffca59894a1072b626b609f30f311dbb86))
+
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
