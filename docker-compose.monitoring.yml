@@ -77,7 +77,7 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
       traefik.enable: "true"
-      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-internal"
+      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
 
       # Localhost router (always on, on the api entrypoint).
       traefik.http.routers.prometheus-local.rule: "PathPrefix(`/prometheus`)"
@@ -163,7 +163,7 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
       traefik.enable: "true"
-      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-internal"
+      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
 
       # Grafana has its own login -- DON'T re-auth at the edge (would
       # break OAuth / SSO redirects). Just IP whitelist + (when public)
@@ -322,7 +322,7 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
       traefik.enable: "true"
-      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-internal"
+      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
 
       traefik.http.routers.alertmanager-local.rule: "PathPrefix(`/alertmanager`)"
       traefik.http.routers.alertmanager-local.entrypoints: "api"

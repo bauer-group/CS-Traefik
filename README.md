@@ -484,7 +484,7 @@ CS-Traefik/
 | --------------------- | ----------------------------- | ------------------------------ |
 | Traefik version       | v2.11                         | v3.6 LTS                       |
 | Public network name   | `EDGEPROXY` (default)         | `EDGEPROXY` (default)          |
-| Internal network name | `EDGEPROXY_INTERNAL`          | `EDGEPROXY-internal`           |
+| Internal network name | `EDGEPROXY_INTERNAL`          | `EDGEPROXY-INTERNAL`           |
 | Entrypoints           | `web` + `web-secure`          | `web` + `web-secure`           |
 | Default cert resolver | `letsencrypt` (TLS-ALPN-01)   | `letsencrypt` (TLS-ALPN-01)    |
 | HTTP→HTTPS redirect   | per-router (apps decide)      | per-router (apps decide)       |
@@ -498,10 +498,10 @@ names, resolver names, port assignments) is byte-compatible with the
 legacy EDGEPROXY stack.
 
 The internal network name changed from underscore to hyphen
-(`EDGEPROXY_INTERNAL` → `EDGEPROXY-internal`) only because the new
-stack uses Compose's automatic naming convention. App stacks normally
-do not attach to that network — only Traefik and the monitoring stack
-use it.
+(`EDGEPROXY_INTERNAL` → `EDGEPROXY-INTERNAL`) -- same uppercase, just
+swapping `_` for `-` to match modern Compose naming convention. App
+stacks normally do not attach to that network — only Traefik and the
+monitoring stack use it.
 
 Migration steps:
 

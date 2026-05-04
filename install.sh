@@ -499,18 +499,21 @@ EOF
     case "$mode_choice" in
         2)
             set_env API_BIND      "0.0.0.0"
+            set_env API_BIND_V6   "::"
             set_env API_HOST      ""
             set_env API_BASE_URL  "http://localhost:9090"
             ;;
         3)
             api_host=$(ask "Admin FQDN (must host NO application)" "admin.${default_domain}")
             set_env API_BIND      "127.0.0.1"
+            set_env API_BIND_V6   "::1"
             set_env API_HOST      "$api_host"
             set_env API_BASE_URL  "https://${api_host}"
             api_base_url="https://${api_host}"
             ;;
         *)
             set_env API_BIND      "127.0.0.1"
+            set_env API_BIND_V6   "::1"
             set_env API_HOST      ""
             set_env API_BASE_URL  "http://localhost:9090"
             ;;

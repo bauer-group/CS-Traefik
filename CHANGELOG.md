@@ -1,9 +1,3 @@
-## [0.1.4](https://github.com/bauer-group/CS-Traefik/compare/v0.1.3...v0.1.4) (2026-05-04)
-
-### 🐛 Bug Fixes
-
-* **metrics:** moved Traefik metrics port 9100 -> 9080 (legacy + name clash) ([60c9b26](https://github.com/bauer-group/CS-Traefik/commit/60c9b26083bc5bee7f84e2bfbfdbf46c079d52c6))
-
 # Changelog
 
 All notable changes to CS-Traefik are documented here.
@@ -14,13 +8,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ### Changed
 
-* Traefik internal `metrics` entrypoint moved from container-port `9100`
-  to `9080` to match the legacy v2 EDGEPROXY convention and avoid name
-  clashing with prom/node-exporter (which conventionally listens on
-  `:9100`). The metrics port is internal-only (not exposed to the host)
-  -- the only consumer is Prometheus scraping over the proxy-internal
-  network. Both `traefik.yml` and `prometheus.yml` updated; no
-  external-facing change for app stacks.
+* **Internal Traefik entrypoint ports use upstream Traefik convention**
+  rather than legacy v2 numbers, since these entrypoints never reach
+  the host and have no external-compat constraint:
+  * `metrics` is now on container-port `8082` (the port shown in the
+    official Traefik docs for the metrics entrypoint).
+  * `ping` is now on container-port `8081` (no canonical Traefik port
+    for ping; clean neighbour to metrics 8082).
+  * Both `traefik.yml` and `prometheus.yml` updated.
+
+* **External port mappings now bind IPv4 + IPv6 explicitly**. Compose's
+  bare `80:80` syntax binds only `0.0.0.0:80` (IPv4); kernels with
+  `IPV6_V6ONLY=0` may auto-dual-stack via `[::]` but that is config-
+  dependent and unreliable. Now every public port (80/tcp, 443/tcp,
+  443/udp, ${API_PORT}/tcp) has TWO explicit bindings -- one for
+  IPv4 and one for IPv6 -- so behaviour is portable across kernels
+  and Docker versions. New `API_BIND_V6` env var controls the IPv6
+  bind for the admin entrypoint, defaulting to `::1` (loopback only).
+
+* **Internal network renamed to UPPERCASE** for naming consistency
+  with the public network: `EDGEPROXY-internal` → `EDGEPROXY-INTERNAL`.
+  Both networks now follow the same casing convention. Applies to:
+  the `traefik.docker.network` labels in the monitoring overlay, the
+  `name:` field on the network definition, and `.env.example` /
+  README documentation. App stacks don't attach to this network so
+  no app-side changes are required.
+
+* **`.releaserc.json` added at repo root** mirroring the
+  `.github/config/release/semantic-release.json` so semantic-release's
+  auto-discovery picks up the `changelogTitle` config regardless of
+  which path the reusable workflow looks at. Should fix the recurring
+  "auto-prepended `## [X.Y.Z]` above the `# Changelog` H1" issue --
+  the plugin now sees the title at the start of the file and inserts
+  new release blocks BELOW it.
+
+## [0.1.4](https://github.com/bauer-group/CS-Traefik/compare/v0.1.3...v0.1.4) (2026-05-04)
+
+### 🐛 Bug Fixes
+
+* **metrics:** moved Traefik metrics port 9100 -> 9080 (legacy + name clash) ([60c9b26](https://github.com/bauer-group/CS-Traefik/commit/60c9b26083bc5bee7f84e2bfbfdbf46c079d52c6))
 
 ## [0.1.3](https://github.com/bauer-group/CS-Traefik/compare/v0.1.2...v0.1.3) (2026-05-04)
 
