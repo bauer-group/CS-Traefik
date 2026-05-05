@@ -1,3 +1,9 @@
+## [0.5.4](https://github.com/bauer-group/CS-Traefik/compare/v0.5.3...v0.5.4) (2026-05-05)
+
+### 🐛 Bug Fixes
+
+* **monitoring:** repaired six bugs uncovered by full-stack Docker Desktop test ([99e3f04](https://github.com/bauer-group/CS-Traefik/commit/99e3f0446e371b9f992af0f8ca11ac43d5547080))
+
 ## [0.5.3](https://github.com/bauer-group/CS-Traefik/compare/v0.5.2...v0.5.3) (2026-05-04)
 
 ### ♻️ Refactoring
