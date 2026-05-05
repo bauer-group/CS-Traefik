@@ -15,7 +15,10 @@ datasources:
     uid: prometheus
     type: prometheus
     access: proxy
-    url: http://prometheus:9090
+    # `--web.route-prefix=/prometheus` (set in docker-compose.monitoring.yml)
+    # serves ALL of the Prometheus HTTP API under /prometheus, including
+    # /api/v1/query etc. Without the path suffix Grafana queries 404.
+    url: http://prometheus:9090/prometheus
     isDefault: true
     editable: false
     jsonData:
@@ -42,7 +45,10 @@ datasources:
     uid: alertmanager
     type: alertmanager
     access: proxy
-    url: http://alertmanager:9093
+    # `--web.route-prefix=/alertmanager` (set in docker-compose.monitoring.yml)
+    # serves the API under /alertmanager. Without the path suffix
+    # Grafana's status / silences / alerts queries return 404.
+    url: http://alertmanager:9093/alertmanager
     editable: false
     jsonData:
       implementation: prometheus

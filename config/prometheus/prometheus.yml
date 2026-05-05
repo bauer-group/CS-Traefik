@@ -32,10 +32,16 @@ rule_files:
 # Container hostname == service name in compose.
 scrape_configs:
 
-  # Prometheus scrapes itself
+  # Prometheus scrapes itself.
+  # `--web.route-prefix=/prometheus` (set in docker-compose.monitoring.yml)
+  # serves ALL endpoints under /prometheus -- including /metrics. Without
+  # the explicit metrics_path the scrape would 404. Container-DNS
+  # `prometheus` (not `localhost`) keeps the scrape consistent with the
+  # rest of the stack and works under IPv6-only deployments too.
   - job_name: prometheus
+    metrics_path: /prometheus/metrics
     static_configs:
-      - targets: ["localhost:9090"]
+      - targets: ["prometheus:9090"]
         labels:
           service: prometheus
 
@@ -70,16 +76,22 @@ scrape_configs:
         labels:
           service: loki
 
-  # Grafana self-metrics
+  # Grafana self-metrics.
+  # `GF_SERVER_SERVE_FROM_SUB_PATH=true` + `GF_SERVER_ROOT_URL=.../grafana`
+  # (in docker-compose.monitoring.yml) move ALL endpoints under /grafana,
+  # including /metrics. Without metrics_path the scrape returns 404.
   - job_name: grafana
+    metrics_path: /grafana/metrics
     static_configs:
       - targets: ["grafana:3000"]
         labels:
           service: grafana
-    metrics_path: /metrics
 
-  # Alertmanager self-metrics
+  # Alertmanager self-metrics.
+  # `--web.route-prefix=/alertmanager` (in docker-compose.monitoring.yml)
+  # serves ALL endpoints under /alertmanager, including /metrics.
   - job_name: alertmanager
+    metrics_path: /alertmanager/metrics
     static_configs:
       - targets: ["alertmanager:9093"]
         labels:

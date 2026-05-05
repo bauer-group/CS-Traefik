@@ -79,18 +79,30 @@ services:
       traefik.enable: "true"
       traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
 
-      # Localhost router (always on, on the api entrypoint).
+      # Localhost router on the api entrypoint. Priority 200 matches the
+      # dashboard-local catch-all in docker-compose.yml -- well above any
+      # plausible app rule's implicit priority (~150 max), so an app
+      # accidentally on the api entrypoint can't bypass api-auth +
+      # api-whitelist via a long rule string.
       traefik.http.routers.prometheus-local.rule: "PathPrefix(`/prometheus`)"
       traefik.http.routers.prometheus-local.entrypoints: "api"
       traefik.http.routers.prometheus-local.service: "prometheus"
+      traefik.http.routers.prometheus-local.priority: "200"
       traefik.http.routers.prometheus-local.middlewares: "api-auth@docker,api-whitelist@docker"
 
       # Public router (only when API_HOST is set in .env).
-      traefik.http.routers.prometheus-public.rule: "${API_HOST:+Host(\\`${API_HOST}\\`) && PathPrefix(\\`/prometheus\\`)}"
+      # `${API_HOST:-__api_host_not_set__.invalid}` makes the rule
+      # fail-closed when API_HOST is unset -- without this, an empty
+      # rule would fall through to the docker provider's default
+      # `Host({{ normalize .Name }})` and silently activate against
+      # the container's name. Priority 300 protects the admin FQDN
+      # from being shadowed by app routers on web-secure.
+      traefik.http.routers.prometheus-public.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`) && PathPrefix(`/prometheus`)"
       traefik.http.routers.prometheus-public.entrypoints: "web-secure"
       traefik.http.routers.prometheus-public.service: "prometheus"
       traefik.http.routers.prometheus-public.tls: "true"
       traefik.http.routers.prometheus-public.tls.certresolver: "letsencrypt"
+      traefik.http.routers.prometheus-public.priority: "300"
       traefik.http.routers.prometheus-public.middlewares: "api-auth@docker,api-whitelist@docker"
 
       traefik.http.services.prometheus.loadbalancer.server.port: "9090"
@@ -169,17 +181,22 @@ services:
       # break OAuth / SSO redirects). Just IP whitelist + (when public)
       # the BasicAuth chain on top of admin login is double protection.
       # Localhost: only IP whitelist (loopback by default anyway).
+      # Priority 200 -- catch-all admin gate, see prometheus-local above.
       traefik.http.routers.grafana-local.rule: "PathPrefix(`/grafana`)"
       traefik.http.routers.grafana-local.entrypoints: "api"
       traefik.http.routers.grafana-local.service: "grafana"
+      traefik.http.routers.grafana-local.priority: "200"
       traefik.http.routers.grafana-local.middlewares: "api-whitelist@docker"
 
       # Public router (only when API_HOST is set).
-      traefik.http.routers.grafana-public.rule: "${API_HOST:+Host(\\`${API_HOST}\\`) && PathPrefix(\\`/grafana\\`)}"
+      # Fail-closed via never-match placeholder when API_HOST unset --
+      # see prometheus-public above for the pattern rationale.
+      traefik.http.routers.grafana-public.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`) && PathPrefix(`/grafana`)"
       traefik.http.routers.grafana-public.entrypoints: "web-secure"
       traefik.http.routers.grafana-public.service: "grafana"
       traefik.http.routers.grafana-public.tls: "true"
       traefik.http.routers.grafana-public.tls.certresolver: "letsencrypt"
+      traefik.http.routers.grafana-public.priority: "300"
       traefik.http.routers.grafana-public.middlewares: "api-whitelist@docker"
 
       traefik.http.services.grafana.loadbalancer.server.port: "3000"
@@ -194,6 +211,8 @@ services:
       prometheus:
         condition: service_healthy
       loki:
+        # service_started (not service_healthy) because Loki has no
+        # healthcheck -- see comment in the loki service block.
         condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
@@ -239,17 +258,19 @@ services:
       - ${DATA_DIRECTORY:-./data}/loki:/loki:rw
     networks:
       proxy-internal:
-    healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3100/ready || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 60s
-    # Resource cap. Safe to apply now that all services run the json-
-    # file driver with `mode: non-blocking` -- a throttled / OOM'd Loki
-    # can no longer cascade into stdout-write blocks in other containers.
-    # Defaults are sized for modest single-host log volumes (~10 MB/min);
-    # raise if you ingest higher rates.
+    # No healthcheck: Loki ships as a distroless image
+    # (gcr.io/distroless/static-debian12:nonroot) -- there is no /bin/sh
+    # and no wget/curl available, so any CMD-SHELL probe fails with
+    # "exec /bin/sh: no such file or directory" and the container
+    # reports "unhealthy" forever even when Loki itself is fine. A
+    # `loki -version` probe works as a binary-alive signal but does NOT
+    # verify HTTP /ready, which would mislead service_healthy
+    # dependents into starting too early. Cleaner to omit the
+    # healthcheck and rely on `service_started` dependency timing
+    # (Promtail + Grafana retry against Loki anyway). If you need
+    # genuine HTTP-readiness gating, attach a blackbox-exporter
+    # sidecar OR override this in docker-compose.override.yml with
+    # an external probe.
     deploy:
       resources:
         limits:
@@ -280,6 +301,14 @@ services:
       traefik.enable: "false"
     volumes:
       - ./config/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      # Docker socket (read-only) -- promtail-config.yml uses
+      # docker_sd_configs to discover all containers on the host and
+      # ship their stdout/stderr logs. Without this mount Promtail
+      # only reaches the Traefik file logs (via the bind mount below)
+      # and silently misses every container's stdout. The mount is
+      # read-only because Promtail only LISTS + READS containers; it
+      # never starts/stops/modifies them.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - ${DATA_DIRECTORY:-./data}/traefik/logs:/var/log/traefik:ro
       - ${DATA_DIRECTORY:-./data}/promtail:/var/lib/promtail:rw
@@ -287,7 +316,11 @@ services:
       proxy-internal:
     depends_on:
       loki:
-        condition: service_healthy
+        # service_started (not service_healthy) because Loki has no
+        # healthcheck -- see comment in the loki service block. Promtail
+        # has internal retry on push errors, so a brief Loki-not-yet-
+        # ready window is harmless.
+        condition: service_started
     # Resource cap. Promtail is lightweight by design but a parser bug
     # or a label-cardinality-heavy regex can spike CPU. Cap is generous
     # enough that legitimate log spikes pass through without drops.
@@ -324,16 +357,23 @@ services:
       traefik.enable: "true"
       traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
 
+      # Localhost router on the api entrypoint. Priority + middleware
+      # rationale identical to prometheus-local above.
       traefik.http.routers.alertmanager-local.rule: "PathPrefix(`/alertmanager`)"
       traefik.http.routers.alertmanager-local.entrypoints: "api"
       traefik.http.routers.alertmanager-local.service: "alertmanager"
+      traefik.http.routers.alertmanager-local.priority: "200"
       traefik.http.routers.alertmanager-local.middlewares: "api-auth@docker,api-whitelist@docker"
 
-      traefik.http.routers.alertmanager-public.rule: "${API_HOST:+Host(\\`${API_HOST}\\`) && PathPrefix(\\`/alertmanager\\`)}"
+      # Public router (only when API_HOST is set).
+      # Fail-closed via never-match placeholder when API_HOST unset --
+      # see prometheus-public above for the pattern rationale.
+      traefik.http.routers.alertmanager-public.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`) && PathPrefix(`/alertmanager`)"
       traefik.http.routers.alertmanager-public.entrypoints: "web-secure"
       traefik.http.routers.alertmanager-public.service: "alertmanager"
       traefik.http.routers.alertmanager-public.tls: "true"
       traefik.http.routers.alertmanager-public.tls.certresolver: "letsencrypt"
+      traefik.http.routers.alertmanager-public.priority: "300"
       traefik.http.routers.alertmanager-public.middlewares: "api-auth@docker,api-whitelist@docker"
 
       traefik.http.services.alertmanager.loadbalancer.server.port: "9093"
@@ -389,7 +429,15 @@ services:
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
-      - /:/host/root:ro,rslave
+      # `:ro` (not `:ro,rslave`) for Docker-Desktop / WSL2 compatibility:
+      # rslave needs the source mount to be a shared or slave mount,
+      # which `/` is NOT on WSL2-backed Docker Desktop ("path / is mounted
+      # on / but it is not a shared or slave mount"). Linux native Docker
+      # tolerates plain `:ro` -- the trade-off is that node-exporter does
+      # not auto-detect filesystems mounted ON the host AFTER its start
+      # (it has to be restarted to see them). Acceptable for typical edge
+      # proxy hosts where new disks/mounts are rare.
+      - /:/host/root:ro
     networks:
       proxy-internal:
     # Resource cap. node-exporter is tiny -- 50-100 MB resident, scrape
@@ -419,7 +467,14 @@ services:
       - "--docker_only=true"
       - "--store_container_labels=false"
       - "--whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service"
-      - "--disable_metrics=accelerator,cpu_topology,disk,memory_numa,tcp,udp,percpu,sched,process,hugetlb,referenced_memory,resctrl,cpuset,advtcp,memory_numa,oom_event"
+      # disable_metrics -- valid options per `cadvisor --help`:
+      #   advtcp, app, cpu, cpuLoad, cpu_topology, cpuset, disk, diskIO,
+      #   hugetlb, memory, memory_numa, network, oom_event, percpu,
+      #   perf_event, pressure, process, referenced_memory, resctrl,
+      #   sched, tcp, udp
+      # We disable the noisy / costly / niche ones; keep cpu, memory,
+      # network, diskIO, perf_event, pressure (the actually-useful set).
+      - "--disable_metrics=advtcp,cpu_topology,cpuset,disk,hugetlb,memory_numa,oom_event,percpu,process,referenced_memory,resctrl,sched,tcp,udp"
     environment:
       TZ: ${TIME_ZONE:-Etc/UTC}
     labels:
