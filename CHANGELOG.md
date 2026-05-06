@@ -1,3 +1,9 @@
+## [0.6.0](https://github.com/bauer-group/CS-Traefik/compare/v0.5.5...v0.6.0) (2026-05-06)
+
+### 🚀 Features
+
+* **monitoring,migration:** added 4 production-grade dashboards + ACME v2->v3 cert migration tool ([dc3fb7c](https://github.com/bauer-group/CS-Traefik/commit/dc3fb7c05f0d2818986f6cf87fb9f832a4857ff3))
+
 ## [0.5.5](https://github.com/bauer-group/CS-Traefik/compare/v0.5.4...v0.5.5) (2026-05-06)
 
 ### 🐛 Bug Fixes
