@@ -15,9 +15,16 @@ global:
 # -----------------------------------------------------------------------------
 # Alerting
 # -----------------------------------------------------------------------------
+# Alertmanager runs with `--web.route-prefix=/alertmanager` (set in
+# docker-compose.monitoring.yml), so the alerts API lives at
+# /alertmanager/api/v2/alerts -- NOT at the root. Without
+# `path_prefix:` Prometheus posts to the root and gets 404, alerts
+# never reach Alertmanager (failure mode visible only in Prometheus's
+# notifier logs: "Error sending alerts ... bad response status 404").
 alerting:
   alertmanagers:
-    - static_configs:
+    - path_prefix: /alertmanager
+      static_configs:
         - targets:
             - alertmanager:9093
 
