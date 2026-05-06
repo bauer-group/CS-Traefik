@@ -1,0 +1,186 @@
+{
+  "description": "TLS certificate inventory + expiry timeline + ACME pipeline health. Operator's view for renewal planning and migration validation.",
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": [],
+      "title": "Certificate KPIs",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Number of certificates currently loaded by Traefik (file-provider + ACME-resolver combined).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "count(traefik_tls_certs_not_after)", "refId": "A" }
+      ],
+      "title": "Certs Loaded",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Days remaining on the cert that expires soonest. Below 30 days = renewal should be imminent. Below 7 = critical.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 14 }, { "color": "green", "value": 30 } ] },
+          "unit": "d"
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "min(traefik_tls_certs_not_after - time()) / 86400", "refId": "A" }
+      ],
+      "title": "Days to Nearest Expiry",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Certs already past expiry. Should always be 0 -- a non-zero value means a TLS handshake will fail somewhere.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "count(traefik_tls_certs_not_after - time() < 0) or vector(0)", "refId": "A" }
+      ],
+      "title": "Expired Certs",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Certs expiring in the next 14 days. Useful for renewal-window planning -- normally 0 because Traefik renews ~30 days before expiry.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1 } ] },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "id": 4,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "count((traefik_tls_certs_not_after - time()) / 86400 < 14) or vector(0)", "refId": "A" }
+      ],
+      "title": "Expiring in 14d",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 200,
+      "panels": [],
+      "title": "Certificate Inventory",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "All TLS certificates Traefik knows about, sorted by closest expiry. SANs column shows the full domain coverage.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "left", "displayMode": "auto" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 14 }, { "color": "green", "value": 30 } ] },
+          "unit": "d"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Days Left" }, "properties": [ { "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "custom.align", "value": "right" } ] },
+          { "matcher": { "id": "byName", "options": "Domain" }, "properties": [ { "id": "custom.align", "value": "left" }, { "id": "unit", "value": "short" } ] },
+          { "matcher": { "id": "byName", "options": "SANs" }, "properties": [ { "id": "custom.align", "value": "left" }, { "id": "unit", "value": "short" } ] }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 6 },
+      "id": 5,
+      "options": { "showHeader": true, "footer": { "show": false }, "sortBy": [ { "displayName": "Days Left", "desc": false } ] },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "(traefik_tls_certs_not_after - time()) / 86400", "format": "table", "instant": true, "refId": "A" }
+      ],
+      "title": "All Certificates -- sorted by closest expiry",
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "instance": true, "job": true, "service": true }, "renameByName": { "cn": "Domain", "sans": "SANs", "serial": "Serial", "subject": "Subject", "Value": "Days Left" } } }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Same data as the table above, plotted as a horizontal timeline. Each line = one cert; the X axis is time-to-expiry. Easy visual: a line crossing the red zone means renewal-now.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 0, "lineInterpolation": "linear", "lineWidth": 2, "showPoints": "always", "pointSize": 6, "spanNulls": false },
+          "unit": "d",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 14 }, { "color": "green", "value": 30 } ] },
+          "custom.thresholdsStyle": { "mode": "line+area" }
+        }
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "id": 6,
+      "options": { "legend": { "calcs": ["min"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "asc" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "(traefik_tls_certs_not_after - time()) / 86400", "legendFormat": "{{ cn }}", "refId": "A" }
+      ],
+      "title": "Days-To-Expiry Timeline (per cert)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 },
+      "id": 300,
+      "panels": [],
+      "title": "ACME Activity (Traefik logs)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "loki" },
+      "description": "Successful ACME registrations, challenge solves, and certificate-renewal notifications from Traefik's own log. Quiet log = healthy steady state.",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 25 },
+      "id": 7,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        { "datasource": { "type": "loki", "uid": "loki" }, "editorMode": "code", "expr": "{job=\"traefik\", source=\"traefik\"} |~ \"(?i)acme|certificate|tlschallenge|httpchallenge|dnschallenge|letsencrypt|renew\"", "queryType": "range", "refId": "A" }
+      ],
+      "title": "ACME / Certificate Events",
+      "type": "logs"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["edgeproxy", "tls", "certificates", "acme"],
+  "templating": { "list": [] },
+  "time": { "from": "now-7d", "to": "now" },
+  "timezone": "",
+  "title": "EDGEPROXY -- TLS & Certificates",
+  "uid": "edgeproxy-tls",
+  "version": 1,
+  "weekStart": ""
+}

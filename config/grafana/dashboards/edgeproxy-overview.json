@@ -189,6 +189,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Number of alerts in firing state right now. Click into the Alerts dashboard for the per-alert table.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -196,12 +197,14 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red",   "value": null },
-              { "color": "yellow", "value": 14 },
-              { "color": "green", "value": 30 }
+              { "color": "green", "value": null },
+              { "color": "red",   "value": 1 }
             ]
           },
-          "unit": "d"
+          "unit": "short",
+          "links": [
+            { "title": "Open Alerts dashboard", "url": "/grafana/d/edgeproxy-alerts" }
+          ]
         },
         "overrides": []
       },
@@ -219,12 +222,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "min(traefik_tls_certs_not_after - time()) / 86400",
-          "legendFormat": "days",
+          "expr": "sum(ALERTS{alertstate=\"firing\"}) or vector(0)",
+          "legendFormat": "alerts firing",
           "refId": "A"
         }
       ],
-      "title": "Closest TLS Cert Expiry",
+      "title": "Firing Alerts",
       "type": "stat"
     },
     {

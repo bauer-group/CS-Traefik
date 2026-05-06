@@ -387,6 +387,243 @@ cmd_backup() {
     echo "            prometheus blocks (WAL excluded), alertmanager state."
 }
 
+cmd_migrate_acme() {
+    print_header "Migrate ACME Certificates from Legacy Stack"
+    require_env
+
+    # ---- Argument parsing -------------------------------------------------
+    local source_file=""
+    local source_resolver="letsencrypt"
+    local target_resolver="letsencrypt-tls"
+    local target_file=""
+    local dry_run=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --source|--src)              source_file="$2"; shift 2 ;;
+            --source-resolver)           source_resolver="$2"; shift 2 ;;
+            --target-resolver)           target_resolver="$2"; shift 2 ;;
+            --target)                    target_file="$2"; shift 2 ;;
+            --dry-run|-n)                dry_run=true; shift ;;
+            -h|--help)
+                cat <<HELP
+${BOLD}Usage:${NC} sudo ./traefik.sh migrate-acme --source <path> [options]
+
+${BOLD}Options:${NC}
+    --source <path>            REQUIRED. Path to the legacy v2 letsencrypt.json
+                               (e.g. /opt/edgeproxy-v2/traefik/certificates/dynamic/letsencrypt.json).
+    --source-resolver <name>   Resolver key in the source file. Default: letsencrypt
+                               (matches the legacy v2 stack convention).
+    --target-resolver <name>   Resolver to write into the new stack. Default:
+                               letsencrypt-tls (preserves the TLS-ALPN-01 challenge
+                               type the v2 stack used). Other options:
+                                 letsencrypt          (HTTP-01)
+                                 letsencrypt-dns      (DNS-01 / wildcards)
+                                 letsencrypt-staging  (testing)
+    --target <path>            Override the destination path. Default:
+                               \${DATA_DIRECTORY}/traefik/letsencrypt/<target-resolver>.json
+    --dry-run, -n              Print what WOULD migrate without writing.
+
+${BOLD}Examples:${NC}
+    # typical migration (v2 letsencrypt -> v3 letsencrypt-tls)
+    sudo ./traefik.sh migrate-acme \\
+        --source /opt/edgeproxy-v2/traefik/certificates/dynamic/letsencrypt.json
+
+    # dry-run first to see what would be moved
+    sudo ./traefik.sh migrate-acme --source ./old-letsencrypt.json --dry-run
+
+    # if the legacy stack used DNS-01 instead, target the dns resolver
+    sudo ./traefik.sh migrate-acme \\
+        --source ./old.json --target-resolver letsencrypt-dns
+
+${BOLD}What it does:${NC}
+    Reads <source> (a Traefik v2 ACME storage file) and merges its
+    certificates + ACME account into the new stack's <target>. Existing
+    certs in the target with the same main domain are REPLACED (the
+    legacy cert wins, since it is what serves real traffic right now);
+    certs for other domains are kept. The ACME account block is taken
+    from the source so renewals continue under the existing Let's
+    Encrypt registration -- avoids a fresh \`new-account\` call that
+    would burn rate-limit budget.
+
+    Permissions are set to 0600 (Traefik refuses ACME files at any
+    other mode). The existing target is backed up to <target>.bak.<ts>
+    before being overwritten.
+
+${BOLD}This subcommand is transient.${NC} Once all legacy certs have been
+    migrated and renewed once successfully under the new stack, you
+    can stop using it. The script stays in the repo as documentation
+    of the migration, but day-to-day operations no longer need it.
+HELP
+                return 0
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                echo "Run: sudo ./traefik.sh migrate-acme --help"
+                return 1
+                ;;
+        esac
+    done
+
+    if [[ -z "$source_file" ]]; then
+        print_error "--source is required. Run with --help for usage."
+        return 1
+    fi
+    if [[ ! -f "$source_file" ]]; then
+        print_error "Source file does not exist: $source_file"
+        return 1
+    fi
+
+    # ---- Resolve target path ---------------------------------------------
+    local data_dir="${DATA_DIRECTORY:-./data}"
+    if [[ -z "$target_file" ]]; then
+        target_file="$data_dir/traefik/letsencrypt/${target_resolver}.json"
+    fi
+    local target_dir
+    target_dir="$(dirname "$target_file")"
+
+    print_info "Source file       : $source_file"
+    print_info "Source resolver   : $source_resolver"
+    print_info "Target file       : $target_file"
+    print_info "Target resolver   : $target_resolver"
+    if $dry_run; then
+        print_warning "DRY-RUN -- no files will be written"
+    fi
+    echo
+
+    if [[ ! -d "$target_dir" ]]; then
+        if $dry_run; then
+            print_info "(would mkdir -p $target_dir)"
+        else
+            mkdir -p "$target_dir"
+        fi
+    fi
+
+    # ---- Locate a usable Python interpreter ------------------------------
+    # python3 on Linux production, python on some Windows / Git-Bash setups.
+    local py=""
+    for candidate in python3 python; do
+        if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c "import sys; sys.exit(0 if sys.version_info >= (3,6) else 1)" >/dev/null 2>&1; then
+            py="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$py" ]]; then
+        print_error "Python 3.6+ is required for migration but was not found in PATH."
+        print_error "Install python3 (apt install python3 / apk add python3) and retry."
+        return 1
+    fi
+
+    # ---- Run the migration via inline Python -----------------------------
+    # Python rather than jq for portability -- present on every Linux box,
+    # and the merge logic is more readable than a jq one-liner.
+    "$py" - "$source_file" "$source_resolver" "$target_file" "$target_resolver" "$dry_run" <<'PYEOF'
+import json, os, sys, time
+
+src_path, src_resolver, dst_path, dst_resolver, dry = sys.argv[1:6]
+dry = dry.lower() == "true"
+
+# ---- Load source -----------------------------------------------------------
+try:
+    with open(src_path, "r", encoding="utf-8") as f:
+        src = json.load(f)
+except json.JSONDecodeError as e:
+    print(f"XX  Source is not valid JSON: {e}")
+    sys.exit(2)
+
+if src_resolver not in src:
+    print(f"XX  Resolver '{src_resolver}' not found in source. Available keys: {list(src.keys())}")
+    sys.exit(2)
+
+src_block = src[src_resolver]
+src_account = src_block.get("Account", {})
+src_certs = src_block.get("Certificates") or []
+if not src_certs:
+    print(f"!!  Source resolver '{src_resolver}' has no certificates -- nothing to migrate.")
+    sys.exit(0)
+
+print(f"-->  Source has {len(src_certs)} certificate(s):")
+for c in src_certs:
+    main = c.get("domain", {}).get("main", "?")
+    sans = c.get("domain", {}).get("sans") or []
+    san_str = f" + {len(sans)} SANs" if sans else ""
+    print(f"    {main}{san_str}")
+
+# ---- Load destination (if exists) ------------------------------------------
+dst = {}
+existing_certs = []
+if os.path.exists(dst_path):
+    try:
+        with open(dst_path, "r", encoding="utf-8") as f:
+            dst = json.load(f)
+        existing_certs = dst.get(dst_resolver, {}).get("Certificates") or []
+        print(f"-->  Target exists: {len(existing_certs)} cert(s) currently under '{dst_resolver}'")
+    except json.JSONDecodeError:
+        print(f"!!  Target exists but is not valid JSON -- it will be replaced.")
+
+# ---- Merge: source certs replace existing same-domain entries ------------
+src_domains = {c.get("domain", {}).get("main") for c in src_certs}
+kept = [c for c in existing_certs if c.get("domain", {}).get("main") not in src_domains]
+merged_certs = kept + src_certs
+replaced = len(existing_certs) - len(kept)
+
+print()
+print(f"OK  Merge plan:")
+print(f"    Source certs added/replaced : {len(src_certs)}")
+print(f"    Existing same-domain replaced: {replaced}")
+print(f"    Existing other-domain kept   : {len(kept)}")
+print(f"    Total in target after merge  : {len(merged_certs)}")
+print()
+
+# Build the new target block. ACME Account from source preserves the LE
+# registration so renewals continue without a fresh `new-account` call
+# (which would consume rate-limit budget AND temporarily disconnect the
+# stack from its previous account-key audit trail).
+new_block = {
+    "Account": src_account,
+    "Certificates": merged_certs,
+}
+dst[dst_resolver] = new_block
+
+if dry:
+    print("-->  Dry-run -- target not written.")
+    sys.exit(0)
+
+# ---- Backup existing destination (if any) ---------------------------------
+if os.path.exists(dst_path):
+    bak = f"{dst_path}.bak.{int(time.time())}"
+    os.rename(dst_path, bak)
+    print(f"OK  Existing target backed up to: {bak}")
+
+# ---- Write new destination + chmod 0600 -----------------------------------
+with open(dst_path, "w", encoding="utf-8") as f:
+    json.dump(dst, f, indent=2)
+os.chmod(dst_path, 0o600)
+print(f"OK  Wrote {dst_path} (mode 0600)")
+PYEOF
+
+    local rc=$?
+    if [[ $rc -ne 0 ]]; then
+        print_error "Migration failed (exit $rc)"
+        return $rc
+    fi
+
+    if ! $dry_run; then
+        echo
+        print_success "Migration complete."
+        echo "  Next steps:"
+        echo "    1. Restart Traefik so it picks up the migrated certs:"
+        echo "         sudo ./traefik.sh restart"
+        echo "    2. Verify each migrated cert is loaded -- in the dashboard"
+        echo "       under HTTP -> TLS -> Certificates, confirm the SAN list."
+        echo "    3. Hit each migrated host to confirm the cert serves correctly:"
+        echo "         curl -vI https://<your-host>"
+        echo "    4. Watch ACME renewal logs for the next few weeks -- Traefik"
+        echo "       renews ~30 days before expiry. The first renewal proves"
+        echo "       the migrated Account block works against Let's Encrypt."
+    fi
+}
+
 cmd_destroy() {
     print_header "Destroy Stack"
     require_env
@@ -432,6 +669,11 @@ ${BOLD}Maintenance:${NC}
     backup               Snapshot .env, config, ACME certs, DBs to a tar.gz
     destroy              Tear down (containers + volumes; bind data kept)
 
+${BOLD}Migration (transient):${NC}
+    migrate-acme         Import ACME certs from a legacy v2 stack's
+                         letsencrypt.json. Run with --help for usage.
+                         Will become obsolete once all certs renew once.
+
 ${BOLD}Examples:${NC}
     sudo ./traefik.sh start              # bring up the active profile mix
     sudo ./traefik.sh logs traefik       # follow Traefik logs
@@ -465,6 +707,7 @@ case "${1:-help}" in
     setup|init)          shift; cmd_setup    "$@" ;;
     validate|check)      shift; cmd_validate "$@" ;;
     backup)              shift; cmd_backup   "$@" ;;
+    migrate-acme)        shift; cmd_migrate_acme "$@" ;;
     destroy|nuke)        shift; cmd_destroy  "$@" ;;
     help|-h|--help|"")   cmd_help            ;;
     *)

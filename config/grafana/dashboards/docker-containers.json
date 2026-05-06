@@ -140,6 +140,46 @@
       ],
       "title": "CPU Throttle Ratio (warn > 25%)",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Counter of how many times each container's main process has restarted. Healthy steady-state = flat at 0; non-zero spikes = crash or watchtower update.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 1, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "normal" } },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 16 },
+      "id": 5,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (name) (changes(container_start_time_seconds{name!=\"\"}[1h]))", "legendFormat": "{{ name }}", "refId": "A" }
+      ],
+      "title": "Container Restarts (last 1h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "loki" },
+      "description": "OOM-killer events from container stdout, plus Docker daemon kills logged via dockerd. Empty = no recent OOM events.",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 16 },
+      "id": 6,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        { "datasource": { "type": "loki", "uid": "loki" }, "editorMode": "code", "expr": "{container=~\".+\"} |~ \"(?i)oom|killed|out of memory|memory cgroup out of memory\"", "queryType": "range", "refId": "A" }
+      ],
+      "title": "OOM / Memory-kill Events",
+      "type": "logs"
     }
   ],
   "refresh": "30s",
