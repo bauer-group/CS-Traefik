@@ -117,7 +117,13 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      # 60s start_period -- Prometheus replays its WAL on every restart.
+      # On a fresh install (no data) this is sub-second; on a long-
+      # running deployment with multi-gigabyte TSDB the replay can run
+      # 30-90 s. 60 s covers the typical case; bump in
+      # docker-compose.override.yml if your retention window is
+      # noticeably bigger than the 30d default.
+      start_period: 60s
     # Resource cap. Generous defaults so normal load never hits them; the
     # cap exists to prevent cardinality-explosion (a label leak that
     # creates millions of series) from eating the entire host. With
@@ -219,7 +225,14 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      # 60s start_period -- Grafana with `GF_INSTALL_PLUGINS` set
+      # downloads + extracts plugins on every cold start (one plugin
+      # is typically 5-15 s; multiple plugins compound). 30 s was
+      # observed as marginal on test runs that included plugin
+      # installation. With no plugins (default empty), boot is well
+      # under 10 s -- the longer window only matters during the
+      # actual install path.
+      start_period: 60s
     # Resource cap. Grafana is mostly query-proxy + render -- caps
     # prevent a runaway dashboard plugin / leaked auth session from
     # eating the host. Defaults are headroom-y for typical use.
@@ -258,19 +271,42 @@ services:
       - ${DATA_DIRECTORY:-./data}/loki:/loki:rw
     networks:
       proxy-internal:
-    # No healthcheck: Loki ships as a distroless image
-    # (gcr.io/distroless/static-debian12:nonroot) -- there is no /bin/sh
-    # and no wget/curl available, so any CMD-SHELL probe fails with
-    # "exec /bin/sh: no such file or directory" and the container
-    # reports "unhealthy" forever even when Loki itself is fine. A
-    # `loki -version` probe works as a binary-alive signal but does NOT
-    # verify HTTP /ready, which would mislead service_healthy
-    # dependents into starting too early. Cleaner to omit the
-    # healthcheck and rely on `service_started` dependency timing
-    # (Promtail + Grafana retry against Loki anyway). If you need
-    # genuine HTTP-readiness gating, attach a blackbox-exporter
-    # sidecar OR override this in docker-compose.override.yml with
-    # an external probe.
+    # No healthcheck on purpose. Loki ships as a distroless image
+    # (gcr.io/distroless/static-debian12:nonroot) -- there is no
+    # /bin/sh and no wget/curl available, so any CMD-SHELL probe
+    # fails with "exec /bin/sh: no such file or directory" and the
+    # container reports "unhealthy" forever even when Loki itself is
+    # fine. A `loki -version` probe technically works as a binary-
+    # alive signal but it would mislead `service_healthy` dependents
+    # (the binary is alive instantly; the HTTP API is not). Better to
+    # have NO healthcheck than a misleading one.
+    #
+    # Cold-start window operators should be aware of:
+    #
+    #   t = 0 s    Container starts. Loki binary alive.
+    #   t = 0..15  Loki logs "waiting 15s after being ready before
+    #              starting compactor". HTTP `/ready` returns 503
+    #              with "Ingester not ready". Promtail pushes 200 OK
+    #              (write path is ready earlier). Grafana queries
+    #              return 503; dashboards show "no data" briefly.
+    #   t = 15+    HTTP `/ready` returns 200. Steady state.
+    #
+    # Promtail and Grafana both have retry loops, so the window is
+    # invisible in steady-state operation -- only first-load Grafana
+    # dashboards may flash empty briefly. If your environment cannot
+    # tolerate the window, options:
+    #
+    #   * Custom Loki image with shell + wget added (rebuild on every
+    #     Loki release -- maintenance burden).
+    #   * Sidecar that probes Loki and exits 0 when ready, plus a
+    #     `depends_on: <sidecar>: service_completed_successfully`
+    #     block on Grafana / Promtail. Adds one container.
+    #   * blackbox-exporter scraping /ready externally + Grafana
+    #     loading dashboards based on alert state. Heavyweight.
+    #
+    # For the BG single-host edge stack, the steady-state retry
+    # behaviour is sufficient. Documented here so the next operator
+    # knows the trade-off.
     deploy:
       resources:
         limits:
@@ -388,6 +424,12 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      # 30s start_period is enough for the alertmanager itself. Note
+      # that alertmanager's "cluster.status=settled" only stabilises
+      # after the gossip-protocol convergence interval (~15 s) -- the
+      # /healthy endpoint reports up before that. For multi-replica
+      # HA setups, raise to 60 s so dependents do not query during
+      # the convergence window.
       start_period: 30s
     # Resource cap. Alertmanager is tiny in steady state -- caps are
     # for defence against alert-storm or templating-loop bugs.

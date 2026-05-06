@@ -53,6 +53,7 @@ install -- this directory holds the in-depth material.
 | [`operations/troubleshooting.md`](operations/troubleshooting.md) | Symptoms → causes → fixes. ACME failures, 502/503 patterns, log explosion, dashboard 404s. |
 | [`operations/backup-restore.md`](operations/backup-restore.md) | What `traefik.sh backup` archives, how to restore, what's NOT in the backup. |
 | [`operations/upgrades.md`](operations/upgrades.md) | Updating images vs. updating the stack scripts. Traefik major-version upgrade pattern. |
+| [`operations/known-limitations.md`](operations/known-limitations.md) | Honest list of trade-offs and gaps -- Loki cold-start window, Grafana plugin quirk, Docker Desktop platform issues, untested areas (TLS / HTTP/3 / IPv6 / alert firing). Read before promoting to production. |
 
 ## Reading order for new operators
 
