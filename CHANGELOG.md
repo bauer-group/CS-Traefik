@@ -1,3 +1,9 @@
+## [0.5.5](https://github.com/bauer-group/CS-Traefik/compare/v0.5.4...v0.5.5) (2026-05-06)
+
+### 🐛 Bug Fixes
+
+* **monitoring:** repaired silent end-to-end alerting break -- alertmanager path_prefix ([13bb4a7](https://github.com/bauer-group/CS-Traefik/commit/13bb4a75b4b81b256d42ad0a09e918825449458f))
+
 ## [0.5.4](https://github.com/bauer-group/CS-Traefik/compare/v0.5.3...v0.5.4) (2026-05-05)
 
 ### 🐛 Bug Fixes
