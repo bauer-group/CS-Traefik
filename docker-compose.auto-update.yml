@@ -56,9 +56,15 @@ services:
       WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 3 * * 6}
       WATCHTOWER_NO_STARTUP_MESSAGE: "false"
 
-      # Structured logging -- matches the rest of the stack (json-file
-      # driver + Promtail). Flip to `auto`/`pretty` via .env when
-      # debugging interactively.
+      # Structured logging. The Docker json-file driver wraps every
+      # stdout line in a JSON envelope regardless of content -- the
+      # reason for `json` here lives one layer higher: Promtail's
+      # `docker-containers` job runs a `json:` pipeline stage that
+      # extracts level/time/msg from each line (see config/promtail/
+      # promtail-config.yml). With logrus JSONFormatter the extraction
+      # succeeds and `level` becomes a queryable Loki label; with the
+      # default `auto`/logfmt output it would silently fail.
+      # Flip to `auto`/`pretty` via .env when debugging interactively.
       WATCHTOWER_LOG_FORMAT: ${WATCHTOWER_LOG_FORMAT:-json}
       WATCHTOWER_LOG_LEVEL: ${WATCHTOWER_LOG_LEVEL:-info}
 
