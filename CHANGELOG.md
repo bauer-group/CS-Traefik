@@ -1,3 +1,9 @@
+## [0.9.1](https://github.com/bauer-group/CS-Traefik/compare/v0.9.0...v0.9.1) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **installer,cli:** TTY fallback for curl|bash + consistent post-action summaries ([d4b8168](https://github.com/bauer-group/CS-Traefik/commit/d4b8168457056c4c76ad7fae7c7452632b9c5ad3))
+
 ## [0.9.0](https://github.com/bauer-group/CS-Traefik/compare/v0.8.1...v0.9.0) (2026-05-07)
 
 ### 🚀 Features
