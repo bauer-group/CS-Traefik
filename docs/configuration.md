@@ -149,29 +149,37 @@ passes them through automatically).
 ## Resource limits
 
 Traefik is **uncapped** (CFS throttling on the request path = visible
-502s). All other helpers have realistic caps that protect the host
-against runaway scenarios. The non-blocking json-file driver
-(`mode: non-blocking`) decouples helper failures from Traefik request
-handling, so cap-violations cannot cascade.
+502s). All other helpers have small-host-safe caps that protect the
+host against runaway scenarios. Defaults are sized for an 8 GB /
+4-core host -- bump per-service for larger hosts or heavier ingest.
+The non-blocking json-file driver (`mode: non-blocking`) decouples
+helper failures from Traefik request handling, so cap-violations
+cannot cascade.
 
 | Variable | Default | Service |
 | --- | --- | --- |
-| `PROMETHEUS_CPU_LIMIT` | `4` | Prometheus |
-| `PROMETHEUS_MEMORY_LIMIT` | `4g` | |
-| `GRAFANA_CPU_LIMIT` | `2` | Grafana |
-| `GRAFANA_MEMORY_LIMIT` | `1g` | |
-| `LOKI_CPU_LIMIT` | `2` | Loki |
-| `LOKI_MEMORY_LIMIT` | `2g` | |
-| `PROMTAIL_CPU_LIMIT` | `1` | Promtail |
-| `PROMTAIL_MEMORY_LIMIT` | `512m` | |
-| `ALERTMANAGER_CPU_LIMIT` | `1` | Alertmanager |
-| `ALERTMANAGER_MEMORY_LIMIT` | `256m` | |
-| `NODE_EXPORTER_CPU_LIMIT` | `1` | node-exporter |
+| `PROMETHEUS_CPU_LIMIT` | `1` | Prometheus |
+| `PROMETHEUS_MEMORY_LIMIT` | `1g` | |
+| `GRAFANA_CPU_LIMIT` | `1` | Grafana |
+| `GRAFANA_MEMORY_LIMIT` | `384m` | |
+| `LOKI_CPU_LIMIT` | `1` | Loki |
+| `LOKI_MEMORY_LIMIT` | `768m` | |
+| `PROMTAIL_CPU_LIMIT` | `0.5` | Promtail |
+| `PROMTAIL_MEMORY_LIMIT` | `256m` | |
+| `ALERTMANAGER_CPU_LIMIT` | `0.25` | Alertmanager |
+| `ALERTMANAGER_MEMORY_LIMIT` | `128m` | |
+| `NODE_EXPORTER_CPU_LIMIT` | `0.25` | node-exporter |
 | `NODE_EXPORTER_MEMORY_LIMIT` | `128m` | |
-| `CADVISOR_CPU_LIMIT` | `1` | cAdvisor |
-| `CADVISOR_MEMORY_LIMIT` | `512m` | |
-| `WATCHTOWER_CPU_LIMIT` | `1` | Watchtower |
+| `CADVISOR_CPU_LIMIT` | `0.5` | cAdvisor |
+| `CADVISOR_MEMORY_LIMIT` | `384m` | |
+| `WATCHTOWER_CPU_LIMIT` | `0.5` | Watchtower |
 | `WATCHTOWER_MEMORY_LIMIT` | `256m` | |
+
+Total cap with the `monitoring` profile: ~5 cores / ~3.2 GB. Adding
+`auto-update` adds another 0.5 core / 256 MB. **No `pids_limit`** is
+set on any container -- empirically a footgun (legitimate workloads
+vary in thread count more than is easy to cap), and the host PID
+quota (typically 4 million) is plenty.
 
 To override Traefik's (intentionally absent) caps, add a
 `docker-compose.override.yml` at the repo root — Compose merges it

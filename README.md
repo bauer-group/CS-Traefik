@@ -23,10 +23,15 @@ For deep documentation see [`docs/`](docs/).
   `127.0.0.1:9090` by default. Three modes: localhost-only / LAN /
   public FQDN over HTTPS. BasicAuth + IP whitelist always enforced.
   See [`docs/admin-access.md`](docs/admin-access.md).
-- **Compose Profiles** — opt in to what you actually need:
+- **Compose Profiles** — opt in to what you actually need (combinable
+  via `COMPOSE_PROFILES=monitoring,auto-update`):
   - `core` (default) — Traefik only.
   - `monitoring` — Prometheus, Grafana, Loki, Promtail, Alertmanager,
-    node-exporter, cAdvisor with pre-provisioned dashboards.
+    node-exporter, cAdvisor with **11 pre-provisioned dashboards**
+    (Home, Overview, HTTP Traffic, Backends, TLS, Alerts, SLI/SLO,
+    Client Analysis, Containers, Self-Monitoring, Logs Explorer) and
+    **alert rules + inhibition routing** out of the box. Small-host-safe
+    defaults (~5 CPU / 3 GB total — fits on an 8 GB / 4-core host).
   - `auto-update` — Watchtower with rolling restart, weekly cron.
 - **Smart defaults**: TLS 1.1+ (mobile-friendly), CGNAT-tolerant
   rate-limits (5000 req/s baseline), `respondingTimeouts=0s` (long
@@ -49,8 +54,18 @@ For deep documentation see [`docs/`](docs/).
 - **Hardened containers**: drop ALL capabilities, non-root users,
   read-only Docker socket, helper resource caps (Traefik intentionally
   uncapped to avoid CFS-throttling on the request path).
+- **Linux OOM hierarchy** tuned so the right process dies first under
+  memory pressure: dockerd / sshd are kernel-protected (-500), Traefik
+  has light bias (-50, less likely to die than apps), apps use the
+  default (0), monitoring services are most-disposable (+200). See
+  [`docs/operations/known-limitations.md`](docs/operations/known-limitations.md).
+- **Batch rollout**: `install.sh upgrade --auto` does in-place v2→v3
+  migration (atomic backup, ACME-cert import, env-var migration, verify).
+  Designed for Ansible-style fleet rollouts across thousands of servers.
 
 ## Quick start
+
+**Fresh install:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install.sh | sudo bash
@@ -58,33 +73,58 @@ curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install
 
 This installs prerequisites (Docker if absent), clones the repo to
 `/opt/edgeproxy`, runs the interactive setup wizard, and starts the
-stack. Non-interactive: append `-s -- --yes`.
+stack. The wizard reads from `/dev/tty` so it works even via curl-pipe.
+Non-interactive: append `-s -- --yes`.
+
+**In-place upgrade from a legacy v2 stack at `/opt/edgeproxy`:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install.sh | sudo bash -s -- upgrade
+```
+
+Detects the running v2 stack, atomically renames the old install
+directory to a timestamped backup, clones v3 fresh, migrates ACME
+certificates (preserving the `Account` block to avoid Let's Encrypt
+rate-limits), regenerates the `.env` from the v2 config, and starts
+the v3 stack. Add `--auto` for fully unattended batch rollouts.
 
 For manual install / advanced flags, see
 [`docs/installation.md`](docs/installation.md).
+For the v2→v3 walkthrough, see
+[`docs/operations/migration-from-v2.md`](docs/operations/migration-from-v2.md).
 
 ## Daily operations
 
 ```text
-sudo ./traefik.sh start         # bring up the active profile mix
-sudo ./traefik.sh stop          # stop containers (volumes preserved)
-sudo ./traefik.sh restart       # restart all running services
-sudo ./traefik.sh status        # ps + resource usage
-sudo ./traefik.sh logs          # tail logs from the whole stack
-sudo ./traefik.sh logs traefik  # tail one service
+sudo ./traefik.sh start                  # bring up the active profile mix
+sudo ./traefik.sh stop                   # stop containers (volumes preserved)
+sudo ./traefik.sh restart                # restart all running services
+sudo ./traefik.sh status                 # ps + resource usage
+sudo ./traefik.sh logs                   # tail logs from the whole stack
+sudo ./traefik.sh logs traefik           # tail one service
 
-sudo ./traefik.sh update        # pull newer Docker images
-sudo ./traefik.sh deploy        # pull newer scripts/configs from git
-sudo ./traefik.sh setup         # re-run the .env wizard
-sudo ./traefik.sh validate      # syntax-check compose + traefik.yml
-sudo ./traefik.sh backup        # tar.gz of .env + config + ACME + DBs
-sudo ./traefik.sh destroy       # tear down (volumes go; bind data stays)
+sudo ./traefik.sh update                 # pull newer Docker images
+sudo ./traefik.sh deploy                 # pull newer scripts/configs from git
+sudo ./traefik.sh setup                  # re-run the .env wizard
+sudo ./traefik.sh validate               # syntax-check compose + traefik.yml
+sudo ./traefik.sh backup                 # tar.gz of .env + config + ACME + DBs
+sudo ./traefik.sh destroy                # tear down (volumes go; bind data stays)
 
-sudo ./install.sh --reconfigure # equivalent: re-run the wizard
-sudo ./install.sh --help        # all installer flags
+sudo ./traefik.sh migrate-acme <path>    # import ACME certs from a v2 letsencrypt.json
+sudo ./traefik.sh check-host-isolation   # read-only audit: confirm host is untouched
 
-sudo ./traefik.sh help          # full reference
+sudo ./install.sh --reconfigure          # equivalent: re-run the wizard
+sudo ./install.sh upgrade                # in-place v2 -> v3 migration (interactive)
+sudo ./install.sh upgrade --auto         # unattended v2 -> v3 (batch rollout)
+sudo ./install.sh --help                 # all installer flags
+
+sudo ./traefik.sh help                   # full reference
 ```
+
+After every `start` / `stop` / `restart` / `update` / fresh install /
+upgrade, the scripts print a structured summary block: container state,
+exposed entrypoints, admin-access mode and URL, profile mix, ACME
+resolver state. No need to chase logs to confirm a successful change.
 
 ## Connecting your service stacks
 
@@ -151,6 +191,7 @@ app defines its own redirect middleware.
 | Troubleshooting (502, ACME, dashboard 404, ...) | [`docs/operations/troubleshooting.md`](docs/operations/troubleshooting.md) |
 | Backup & restore | [`docs/operations/backup-restore.md`](docs/operations/backup-restore.md) |
 | Upgrades (`update` vs. `deploy`) | [`docs/operations/upgrades.md`](docs/operations/upgrades.md) |
+| Known limitations & host-isolation contract | [`docs/operations/known-limitations.md`](docs/operations/known-limitations.md) |
 
 ## Directory layout
 

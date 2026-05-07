@@ -10,7 +10,7 @@ alone — monitoring and auto-update are activated by setting
 | Profile | Activates | Adds to host |
 | --- | --- | --- |
 | *(none)* — `core` | Just Traefik | `traefik` container |
-| `monitoring` | Prometheus + Grafana + Loki + Promtail + Alertmanager + node-exporter + cAdvisor | 7 containers, ~6 GB RAM under load |
+| `monitoring` | Prometheus + Grafana + Loki + Promtail + Alertmanager + node-exporter + cAdvisor | 7 containers, ~3.2 GB RAM cap (small-host defaults) |
 | `auto-update` | Watchtower | 1 container, weekly cron (Sat 03:00 default) |
 
 Combine with comma:
@@ -77,9 +77,11 @@ get just Traefik. Users opt in to extras.
 
 Reasoning:
 
-- **Monitoring stack is heavy** — 7 containers, ~6 GB RAM under load.
-  Many deployments don't need it; they use external monitoring (Datadog,
-  New Relic, Grafana Cloud, ...).
+- **Monitoring stack is non-trivial** — 7 containers, ~3.2 GB RAM cap
+  with small-host defaults (fits on an 8 GB / 4-core host). Many
+  deployments don't need it; they use external monitoring (Datadog,
+  New Relic, Grafana Cloud, ...). Bump per-service caps via `.env` if
+  you ingest >50 GB/day logs or run >20 scrape targets.
 - **Auto-update is a policy decision** — some operators want manual
   control over when their proxy restarts. Watchtower's rolling-restart
   is safe but introduces uncontrolled timing.
@@ -97,7 +99,7 @@ Skip when:
 
 - You already pay for Datadog / New Relic / etc. — adding Prometheus
   duplicates the metrics.
-- The host is severely RAM-constrained (<4 GB total).
+- The host is severely RAM-constrained (<6 GB total free for the stack).
 - This is a dev/local environment.
 
 ## When to enable `auto-update`

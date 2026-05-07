@@ -51,6 +51,30 @@ curl ... | sudo bash -s -- --branch develop
 curl ... | sudo bash -s -- --install-dir /srv/edgeproxy
 ```
 
+### In-place upgrade from a v2 stack
+
+If `/opt/edgeproxy` already contains the legacy v2 EDGEPROXY stack,
+use the `upgrade` subcommand instead of `--reconfigure`. It atomically
+renames the v2 directory to a timestamped backup, clones v3, migrates
+ACME certificates (preserving the LE `Account` block to avoid
+rate-limits), regenerates `.env` from the v2 config, and starts v3:
+
+```bash
+# Interactive (asks for confirmation, even via curl-pipe -- reads /dev/tty)
+curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install.sh \
+    | sudo bash -s -- upgrade
+
+# Unattended (Ansible / Salt / fleet rollout to thousands of hosts)
+curl -fsSL ... | sudo bash -s -- upgrade --auto
+
+# Dry-run -- detects v2 state, prints what would happen, exits without changes
+curl -fsSL ... | sudo bash -s -- upgrade --dry-run
+```
+
+See [`operations/migration-from-v2.md`](operations/migration-from-v2.md)
+for a phase-by-phase walkthrough, env-var migration table, and recovery
+instructions.
+
 ## Manual install
 
 ```bash
@@ -88,7 +112,7 @@ CS_TRAEFIK_BRANCH=develop curl -fsSL ... | sudo bash
 | Docker Engine | 20.10+ (for `mode: non-blocking` json-file driver) |
 | Docker Compose | v2 plugin (`docker compose`, not legacy `docker-compose`) |
 | Free disk | ~5 GB (data + images) -- more if you ingest heavy logs/metrics |
-| Free RAM | 1 GB for core, +6 GB if `monitoring` profile active |
+| Free RAM | 1 GB for core, +3.2 GB cap if `monitoring` profile active (small-host defaults; bump for >50 GB/day log ingest or >20 scrape targets) |
 | Open ports | 80/tcp, 443/tcp, 443/udp -- Traefik listens here |
 
 The installer handles Docker if absent. The other prerequisites are

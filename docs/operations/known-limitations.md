@@ -208,19 +208,25 @@ slightly lower guarantees in extreme OOM scenarios:**
   Prometheus TSDB / Loki chunk writes do not contend with the
   Traefik log file or the OS root partition.
 
-If you cannot or do not want to set these host-level protections,
-override Traefik's `oom_score_adj` to a softer value in
+If your environment runs without backend services that can take the
+hit and you want Traefik more aggressively protected, override
+`oom_score_adj` to a stronger negative in
 `docker-compose.override.yml`:
 
 ```yaml
 services:
   traefik:
-    oom_score_adj: -500   # less extreme than the shipped -1000
+    oom_score_adj: -200   # stronger than the shipped -50
+    # or -500 to match a typical distro-protected dockerd, but
+    # be aware: dockerd / sshd should still be MORE protected
+    # than Traefik for host recoverability.
 ```
 
-That puts Traefik on the same priority tier as a typical
-distro-protected `dockerd` -- still very unlikely to be killed, but
-the kernel is not forced to exhaust every other option first.
+The shipped default of `-50` is intentionally light because a reverse
+proxy without backends is dead weight: if apps are dying to free
+memory, killing Traefik first is often the right outcome (faster
+fail-fast for the load balancer in front). Raise the protection only
+if your apps are inelastic to brief memory pressure.
 
 ## Healthcheck `start_period` reference
 

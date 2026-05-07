@@ -87,23 +87,40 @@ PROMETHEUS_RETENTION_SIZE=8GB   # whichever hits first wins
 `https://${API_HOST}/prometheus/` in mode 3). Useful for ad-hoc PromQL
 queries during debugging — Grafana is the long-form query interface.
 
-**Resource cap**: 4 CPU / 4 GB RAM by default. Sized for ~6-10 scrape
-targets at 15s intervals. Cap protects against cardinality-explosion
-(label-leak in apps creating millions of series).
+**Resource cap**: 1 CPU / 1 GB RAM by default — small-host-safe (8 GB /
+4-core host). Sized for ~6-10 scrape targets at 15s intervals. Bump to
+2 CPU / 2 GB on hosts with 16+ GB RAM and >20 scrape targets. Cap
+protects against cardinality-explosion (label-leak in apps creating
+millions of series).
 
 ## Grafana
 
 **What it does**: visualisation. Pulls from Prometheus + Loki
 datasources, renders dashboards.
 
-**Pre-provisioned dashboards** (in
+**Pre-provisioned dashboards** (11 dashboards / 87 panels in
 [`config/grafana/dashboards/`](../config/grafana/dashboards/)):
 
 | Dashboard | UID | What it shows |
 | --- | --- | --- |
-| EDGEPROXY — Overview | `edgeproxy-overview` | Traefik request rate, error %, latency, cert expiry, host CPU/mem/disk, recent 5xx logs from Loki. |
-| EDGEPROXY — Containers | `edgeproxy-containers` | Per-container CPU/memory/network/throttle from cAdvisor. |
-| EDGEPROXY — Logs Explorer | `edgeproxy-logs` | Loki-backed log search across the stack. |
+| EDGEPROXY — Home | `edgeproxy-home` | Landing page with auto-listed dashboard index + 6 live KPI stats with drill-down links. Set as Grafana's default dashboard for "open Grafana, see everything important". |
+| EDGEPROXY — Overview | `edgeproxy-overview` | KPIs (Traefik up, req/s, 5xx ratio, p95 latency, firing alerts), per-service latency timeseries with SLO threshold lines, host CPU/mem/disk gauges, recent 5xx access logs. |
+| EDGEPROXY — HTTP Traffic | `edgeproxy-http-traffic` | Top routers/services, latency heatmap (full distribution, slow-tail visible), bandwidth, method mix, status-code stack. Filter via `$service` / `$router` variables. |
+| EDGEPROXY — Backends | `edgeproxy-backends` | Per-service open connections, retry rate, latency-quantile matrix (p50/p95/p99 in one table), recent backend errors. Filter via `$service`. |
+| EDGEPROXY — TLS & Certificates | `edgeproxy-tls` | Cert inventory sorted by expiry, days-to-expiry timeline plot, ACME activity log via Loki. |
+| EDGEPROXY — Alerts | `edgeproxy-alerts` | Currently firing alerts, alert history, rule-eval health, notification pipeline, alertmanager silences. |
+| EDGEPROXY — SLI / SLO | `edgeproxy-slo` | 28-day availability gauge, p95 latency, error-budget burn (multi-window 1h/6h/24h per Google SRE workbook), per-service SLO table. Targets configurable via dashboard variables. |
+| EDGEPROXY — Client Analysis | `edgeproxy-clients` | Top source IPs, abuse signals (401/403 by client over time), probe / scan signature log (regex over `.env`, `.git`, `wp-admin`, etc.). |
+| EDGEPROXY — Containers | `edgeproxy-containers` | Per-container CPU/mem/network/throttle, restart count, OOM events. |
+| EDGEPROXY — Self-Monitoring | `edgeproxy-self-monitoring` | Prometheus TSDB cardinality / WAL-replay / scrape-pool, Loki ingest + active streams. The "monitoring of monitoring" view. |
+| EDGEPROXY — Logs Explorer | `edgeproxy-logs` | Loki-backed log search across the stack with `$stack` / `$container` / `$search` filters. |
+
+Cross-dashboard navigation: Overview's KPI stats carry data-links so
+clicking the Request-Rate stat opens HTTP Traffic, the 5xx-Ratio stat
+opens Backends, the p95 stat opens SLI/SLO, the Firing-Alerts stat
+opens Alerts. Time-series panels carry annotation queries that
+overlay vertical red lines when an alert was firing -- visual
+correlation of metric anomalies with alert events.
 
 Want the standard community dashboards too? Import via Grafana UI:
 
@@ -117,9 +134,12 @@ Want the standard community dashboards too? Import via Grafana UI:
 **Pre-provisioned datasources** (in
 [`config/grafana/provisioning/datasources/`](../config/grafana/provisioning/datasources/)):
 
-- Prometheus (UID: `prometheus`) — `http://prometheus:9090`
+- Prometheus (UID: `prometheus`) — `http://prometheus:9090/prometheus`
+  (sub-path because Prometheus runs with `--web.route-prefix=/prometheus`).
 - Loki (UID: `loki`) — `http://loki:3100`
-- Alertmanager (UID: `alertmanager`) — `http://alertmanager:9093`
+  (no route-prefix, served at root).
+- Alertmanager (UID: `alertmanager`) — `http://alertmanager:9093/alertmanager`
+  (sub-path because Alertmanager runs with `--web.route-prefix=/alertmanager`).
 
 **Grafana login**: separate from the api entrypoint BasicAuth.
 `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` in `.env`. Why two
@@ -132,7 +152,9 @@ without re-architecting.
 internal redirects work correctly — no need to special-case URL
 generation.
 
-**Resource cap**: 2 CPU / 1 GB RAM by default.
+**Resource cap**: 1 CPU / 384 MB RAM by default — small-host-safe.
+Grafana is mostly idle; the limit only matters when many concurrent
+users render heavy dashboards. Bump on multi-user installs.
 
 ## Loki
 
@@ -169,7 +191,9 @@ Compactor handles deletion automatically.
 **Not exposed** to the host. Only Promtail (writer) and Grafana
 (reader) talk to Loki, and they all live on `EDGEPROXY-INTERNAL`.
 
-**Resource cap**: 2 CPU / 2 GB RAM by default.
+**Resource cap**: 1 CPU / 768 MB RAM by default — small-host-safe.
+Loki spends most CPU on chunk compression and most RAM on the index
+cache. If you ingest >50 GB/day, bump to 2 CPU / 2 GB.
 
 ## Promtail
 
@@ -202,7 +226,9 @@ Both are queryable in Grafana Logs Explorer. Filter by source:
 **Position file**: `${DATA_DIRECTORY}/promtail/positions.yaml` —
 Promtail resumes reading from where it left off after a restart.
 
-**Resource cap**: 1 CPU / 512 MB RAM. Lightweight by design.
+**Resource cap**: 0.5 CPU / 256 MB RAM. Lightweight by design — Promtail
+is mostly I/O wait. CPU only spikes during initial backfill of long
+log files after a restart.
 
 ## Alertmanager
 
@@ -247,7 +273,8 @@ receivers all work — see the
 alerts for the same target (so one HostDiskSpaceCritical doesn't ALSO
 fire HostDiskSpaceLow as a separate page).
 
-**Resource cap**: 1 CPU / 256 MB RAM.
+**Resource cap**: 0.25 CPU / 128 MB RAM. Alertmanager is event-driven
+and idle most of the time; minimal footprint is sufficient.
 
 ## node-exporter
 

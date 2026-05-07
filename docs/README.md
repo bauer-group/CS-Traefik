@@ -32,7 +32,7 @@ install -- this directory holds the in-depth material.
 
 | Doc | What's in it |
 | --- | --- |
-| [`monitoring.md`](monitoring.md) | Prometheus + Grafana + Loki + Promtail + Alertmanager + node-exporter + cAdvisor. Pre-provisioned dashboards. |
+| [`monitoring.md`](monitoring.md) | Prometheus + Grafana + Loki + Promtail + Alertmanager + node-exporter + cAdvisor. **11 pre-provisioned dashboards** (Home / Overview / HTTP Traffic / Backends / TLS / Alerts / SLI-SLO / Client Analysis / Containers / Self-Monitoring / Logs Explorer), pre-configured alert rules, sub-path serving, small-host-safe defaults. |
 
 ## Examples
 
