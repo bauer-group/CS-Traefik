@@ -144,7 +144,7 @@ passes them through automatically).
 | `WATCHTOWER_IMAGE` | `marrrrrrrrry/watchtower:latest` | Actively maintained fork of containrrr/watchtower. Requires Docker API 1.52+. Switch to `containrrr/watchtower:latest` if you prefer the (unmaintained) upstream. |
 | `WATCHTOWER_SCHEDULE` | `0 0 3 * * 6` | Six-field cron. Sat 03:00 by default. |
 | `WATCHTOWER_TIMEOUT` | `60s` | Match the longest `stop_grace_period` in the stack. |
-| `WATCHTOWER_LOG_FORMAT` | `json` | Lets Promtail's `json:` pipeline stage on the docker-containers job extract `level`/`time`/`msg` into Loki labels. Override with `auto`/`pretty` for interactive debugging. |
+| `WATCHTOWER_LOG_FORMAT` | `auto` | Human-readable text, matching the stack convention. Override with `json` to opt into Promtail field extraction (nests JSON inside the Docker envelope's JSON). |
 | `WATCHTOWER_LOG_LEVEL` | `info` | `panic`..`trace`. Never set `trace` permanently -- it logs credentials. |
 | `WATCHTOWER_NOTIFICATIONS` | *(empty)* | Slack / email / Telegram. See `.env.example` for templates. |
 
