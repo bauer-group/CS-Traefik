@@ -1,3 +1,9 @@
+## [0.9.5](https://github.com/bauer-group/CS-Traefik/compare/v0.9.4...v0.9.5) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **docker-compose:** remove redundant comments about v2 network subnets ([072aa48](https://github.com/bauer-group/CS-Traefik/commit/072aa481a9b95dbfd598a1f8f478d98ba5146370))
+
 ## [0.9.4](https://github.com/bauer-group/CS-Traefik/compare/v0.9.3...v0.9.4) (2026-05-07)
 
 ### ⏪ Reverts
