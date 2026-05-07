@@ -1,3 +1,9 @@
+## [0.9.7](https://github.com/bauer-group/CS-Traefik/compare/v0.9.6...v0.9.7) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **routing:** added Path(\`/\`) to dashboard routers so bare-host redirect actually fires ([2b92d43](https://github.com/bauer-group/CS-Traefik/commit/2b92d43ae35f2699774aea4c21c869eff1314b48))
+
 ## [0.9.6](https://github.com/bauer-group/CS-Traefik/compare/v0.9.5...v0.9.6) (2026-05-07)
 
 ### 🐛 Bug Fixes
