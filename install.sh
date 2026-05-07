@@ -1202,7 +1202,6 @@ backup_v2_dir() {
 generate_env_with_migration() {
     local backup_dir="$1"
     local new_env="$INSTALL_DIR/.env"
-    local example="$INSTALL_DIR/.env.example"
     print_section "Phase 6: Migrate .env settings"
 
     if [[ "$DRY_RUN" == true ]]; then

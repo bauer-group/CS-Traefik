@@ -14,7 +14,9 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# BASH_SOURCE may be unset under `set -u` if this script is ever sourced
+# from a context that didn't populate it. Guard with ${BASH_SOURCE[0]:-$0}.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 ENV_FILE="$PROJECT_ROOT/.env"
 
