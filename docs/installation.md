@@ -145,6 +145,88 @@ The repo stays at `/opt/edgeproxy/`, runtime state moves to
 `/mnt/fastdisk/edgeproxy/`. Do NOT set `DATA_DIRECTORY` to the
 install dir itself -- that mixes repo files with runtime state.
 
+## Disk layout considerations
+
+A common production topology has `/var/lib/docker` on a dedicated
+larger volume (for image layers, container layers, and Docker-
+managed named volumes) and `/opt` on the OS root disk. With the
+default `DATA_DIRECTORY=./data`, runtime state lands on the OS
+root -- which is fine for small deployments but will eventually
+fill up the root disk on long-retention setups (Prometheus 30-day
+TSDB can be 5-20 GB, Loki 7-day chunks can be 10-50 GB).
+
+The installer's wizard sniffs the disk layout (`df` on the install
+dir vs `df` on `/var/lib/docker`) and prints a one-line hint when
+they are on different filesystems and the docker volume has more
+free space. From that point you have three patterns:
+
+### Pattern A -- accept state on OS root (default, simple)
+
+`DATA_DIRECTORY=./data` (the default). Runtime state lives at
+`/opt/edgeproxy/data/`. Easy to inspect (`ls /opt/edgeproxy/data/`),
+trivial to back up (just `tar`), trivial to migrate. Fine for
+small / short-retention deployments. Keep an eye on `/opt`'s
+disk usage.
+
+### Pattern B -- dedicated mount on the big volume
+
+The cleanest production pattern: have the host admin create a
+mount point on the big volume specifically for edgeproxy state
+(e.g. an LVM logical volume or a partition under the same disk
+that holds `/var/lib/docker`):
+
+```bash
+# One-time host setup -- as root
+sudo mkdir /var/lib/edgeproxy
+# (set up LVM / fstab so /var/lib/edgeproxy is mounted on the big disk)
+```
+
+Then in `.env`:
+
+```env
+DATA_DIRECTORY=/var/lib/edgeproxy
+```
+
+State lands on the big volume, repo stays at `/opt/edgeproxy/`.
+Bind-mount inspection / `tar` backup workflow is identical to
+Pattern A -- just at a different absolute path.
+
+This pattern is recommended for production deployments where
+Prometheus retention is > 30 days, Loki retention is > 7 days,
+or many apps produce metrics / logs.
+
+### Pattern C -- bind-mount inside `/var/lib/docker`
+
+Quick-and-dirty: re-use the existing `/var/lib/docker` mount
+without setting up a new one:
+
+```env
+DATA_DIRECTORY=/var/lib/docker/edgeproxy-state
+```
+
+This works (the path is just a regular directory under the docker
+data dir) but is conventionally unusual -- `/var/lib/docker` is
+"owned" by the Docker daemon, and mixing your own bind-mount data
+under that tree means restoring Docker from backup also touches
+your edgeproxy state. Acceptable for hobby / lab; not recommended
+for production.
+
+### What about Docker-managed named volumes?
+
+Switching the heavy services (Prometheus, Loki) from bind mounts
+to Docker-managed named volumes would automatically land their
+data on `/var/lib/docker/volumes/` -- exactly on the big volume
+in this topology. The trade-off: Docker volumes are less
+operator-friendly for backup (need `docker run --mount` shenanigans
+instead of `tar`) and harder to inspect (paths under
+`/var/lib/docker/volumes/<name>/_data/` rather than a clean
+`/opt/edgeproxy/data/<service>/`).
+
+CS-Traefik chose bind mounts deliberately for the operator-
+friendly inspection / backup workflow. If your environment
+needs the named-volume pattern, it is a non-trivial compose-file
+edit -- left to the operator who genuinely needs it.
+
 ## Post-install verification
 
 ```bash

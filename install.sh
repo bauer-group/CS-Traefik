@@ -440,10 +440,39 @@ run_wizard() {
     network_name=$(ask "Public network name (legacy default: EDGEPROXY)" "EDGEPROXY")
     time_zone=$(ask "Timezone (IANA name)" "$default_tz")
     # Default `./data` keeps runtime state under the install dir but in
-    # a clearly-separated, gitignored subdirectory. Overriding to an
-    # absolute path is only needed if the operator wants state on a
-    # separate disk / volume / NFS share. Never suggest the install
-    # dir itself (would mix repo files with runtime state).
+    # a clearly-separated, gitignored subdirectory. Override to an
+    # absolute path if you want state on a separate disk / volume.
+    # Never suggest the install dir itself (would mix repo files with
+    # runtime state).
+    #
+    # Disk-layout sniff: if /var/lib/docker is on a different (larger)
+    # filesystem than the install dir, print a one-line hint. Common
+    # BG topology: /var/lib/docker on a dedicated big volume (for
+    # images + named volumes), /opt on OS root (smaller). Heavy state
+    # (Prometheus TSDB, Loki chunks) can fill OS root over weeks --
+    # the operator can override DATA_DIRECTORY here if relevant.
+    if command -v df >/dev/null 2>&1 && [[ -d /var/lib/docker ]]; then
+        local install_fs docker_fs install_avail docker_avail
+        install_fs=$(df --output=source "$INSTALL_DIR" 2>/dev/null | tail -1)
+        docker_fs=$(df --output=source /var/lib/docker 2>/dev/null | tail -1)
+        if [[ -n "$install_fs" && -n "$docker_fs" && "$install_fs" != "$docker_fs" ]]; then
+            install_avail=$(df --output=avail -BG "$INSTALL_DIR" 2>/dev/null | tail -1 | tr -d 'G ')
+            docker_avail=$(df --output=avail -BG /var/lib/docker 2>/dev/null | tail -1 | tr -d 'G ')
+            if [[ -n "$install_avail" && -n "$docker_avail" ]] && (( docker_avail > install_avail )); then
+                echo
+                print_warning "Disk-layout note: /var/lib/docker is on a separate volume."
+                print_warning "    Install dir ($INSTALL_DIR) free space: ${install_avail} GB"
+                print_warning "    /var/lib/docker free space:            ${docker_avail} GB"
+                print_warning ""
+                print_warning "Heavy runtime state (Prometheus TSDB, Loki chunks) can grow to"
+                print_warning "tens of GB over weeks. The default './data' lands on the install"
+                print_warning "dir's filesystem -- if that is constrained, consider overriding"
+                print_warning "to a path on the larger volume. See docs/installation.md ->"
+                print_warning "'Disk layout considerations' for the typical patterns."
+                echo
+            fi
+        fi
+    fi
     data_dir=$(ask "Data directory (relative to install dir, OR absolute path for separate disk)" "./data")
 
     set_env STACK_NAME      "$stack_name"
