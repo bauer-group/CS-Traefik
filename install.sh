@@ -765,11 +765,14 @@ Admin UIs are reached through the dedicated 'api' entrypoint, NEVER on
 port 443 by default. Three modes:
 
   1) Localhost only -- bind 127.0.0.1:9090 (DEFAULT, most secure).
-     Reach via SSH-tunnel:
+     TCP-layer gate ON TOP of BasicAuth + IP whitelist. Requires
+     SSH-tunnel for remote access:
        ssh -L 9090:127.0.0.1:9090 user@server
        open http://127.0.0.1:9090/dashboard/
-  2) LAN-accessible -- bind 0.0.0.0:9090 (BasicAuth-only, no TLS).
-     OK on trusted networks; not for public internet.
+  2) LAN-accessible -- bind 0.0.0.0:9090, gated by BasicAuth +
+     IP whitelist (no TLS). Equivalent to the legacy v2 EDGEPROXY
+     access pattern. Pick this if SSH tunneling is awkward and the
+     whitelist + BasicAuth combo is your real access boundary.
   3) Public FQDN over HTTPS -- additionally route /dashboard /grafana
      /prometheus /alertmanager on a dedicated FQDN like
      admin.bauer-group.com (BasicAuth + IP whitelist + Let's Encrypt TLS).
