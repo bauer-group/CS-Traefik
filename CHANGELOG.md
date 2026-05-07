@@ -1,3 +1,9 @@
+## [0.9.11](https://github.com/bauer-group/CS-Traefik/compare/v0.9.10...v0.9.11) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **watchtower:** reverted log format default to auto for stack consistency ([80a3515](https://github.com/bauer-group/CS-Traefik/commit/80a351518dc163b83f769abfc5baa0328e004f03))
+
 ## [0.9.10](https://github.com/bauer-group/CS-Traefik/compare/v0.9.9...v0.9.10) (2026-05-07)
 
 ### 🐛 Bug Fixes
