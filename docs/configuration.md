@@ -141,9 +141,11 @@ passes them through automatically).
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `WATCHTOWER_IMAGE` | `nickfedor/watchtower:latest` | Community fork with rolling-restart. Switch to `containrrr/watchtower:latest` for the upstream original. |
+| `WATCHTOWER_IMAGE` | `marrrrrrrrry/watchtower:latest` | Actively maintained fork of containrrr/watchtower. Requires Docker API 1.52+. Switch to `containrrr/watchtower:latest` if you prefer the (unmaintained) upstream. |
 | `WATCHTOWER_SCHEDULE` | `0 0 3 * * 6` | Six-field cron. Sat 03:00 by default. |
 | `WATCHTOWER_TIMEOUT` | `60s` | Match the longest `stop_grace_period` in the stack. |
+| `WATCHTOWER_LOG_FORMAT` | `json` | Matches the stack's json-file driver and Promtail/Loki parsing. Override with `auto`/`pretty` for interactive debugging. |
+| `WATCHTOWER_LOG_LEVEL` | `info` | `panic`..`trace`. Never set `trace` permanently -- it logs credentials. |
 | `WATCHTOWER_NOTIFICATIONS` | *(empty)* | Slack / email / Telegram. See `.env.example` for templates. |
 
 ## Resource limits

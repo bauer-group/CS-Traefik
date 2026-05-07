@@ -27,7 +27,7 @@ x-logging: &default-logging
 services:
 
   watchtower:
-    image: ${WATCHTOWER_IMAGE:-nickfedor/watchtower:latest}
+    image: ${WATCHTOWER_IMAGE:-marrrrrrrrry/watchtower:latest}
     container_name: ${STACK_NAME:-edgeproxy}-watchtower
     hostname: watchtower
     restart: unless-stopped
@@ -44,19 +44,23 @@ services:
       WATCHTOWER_CLEANUP: "true"
       WATCHTOWER_INCLUDE_STOPPED: "false"
       WATCHTOWER_LABEL_ENABLE: "true"
-      # WATCHTOWER_ROLLING_RESTART is intentionally NOT set. The nickfedor
-      # fork's strict validator refuses rolling restart when ANY labeled
-      # container has a depends_on chain (promtail->loki,
-      # grafana->prometheus,loki) -- which is exactly our monitoring
-      # stack. With WATCHTOWER_ROLLING_RESTART=true the container exits
-      # non-zero on every wakeup -> infinite restart loop under
-      # `restart: unless-stopped`. Default mode (stop -> pull -> recreate
-      # in dep order) is fine for the once-a-week 03:00 Saturday cron --
-      # ~5s downtime, invisible at that hour.
-      # WATCHTOWER_ROLLING_RESTART: "true"
+      # Rolling restart is enabled: marrrrrrrrry/watchtower honors
+      # depends_on chains (promtail->loki, grafana->prometheus,loki)
+      # without aborting, so each labelled container is stopped, pulled
+      # and recreated individually instead of as one big batch. Earlier
+      # iterations used nickfedor/watchtower whose strict validator
+      # refused this combination -> infinite restart loop. The marrrrrrrrry
+      # fork tracks the current Docker API and removes that constraint.
+      WATCHTOWER_ROLLING_RESTART: "true"
       WATCHTOWER_TIMEOUT: ${WATCHTOWER_TIMEOUT:-60s}
       WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 3 * * 6}
       WATCHTOWER_NO_STARTUP_MESSAGE: "false"
+
+      # Structured logging -- matches the rest of the stack (json-file
+      # driver + Promtail). Flip to `auto`/`pretty` via .env when
+      # debugging interactively.
+      WATCHTOWER_LOG_FORMAT: ${WATCHTOWER_LOG_FORMAT:-json}
+      WATCHTOWER_LOG_LEVEL: ${WATCHTOWER_LOG_LEVEL:-info}
 
       # Notifications (passthrough -- only active if .env sets them)
       WATCHTOWER_NOTIFICATIONS: ${WATCHTOWER_NOTIFICATIONS:-}
