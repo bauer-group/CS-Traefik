@@ -56,18 +56,6 @@ services:
       WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 3 * * 6}
       WATCHTOWER_NO_STARTUP_MESSAGE: "false"
 
-      # Logging. Default `auto` -> human-readable text on stdout,
-      # matching the rest of the stack (Traefik/Grafana/Loki/Prometheus
-      # all emit plain text on console). The Docker json-file driver
-      # wraps each line in its own JSON envelope -- that is the single
-      # JSON layer Promtail/Loki see. Setting `json` here would nest
-      # JSON inside JSON for the only container in the stack to do so.
-      # Flip to `json` via .env if you want Promtail's docker-containers
-      # `json:` stage to extract level/time/msg into Loki labels for
-      # this one service.
-      WATCHTOWER_LOG_FORMAT: ${WATCHTOWER_LOG_FORMAT:-auto}
-      WATCHTOWER_LOG_LEVEL: ${WATCHTOWER_LOG_LEVEL:-info}
-
       # Notifications (passthrough -- only active if .env sets them)
       WATCHTOWER_NOTIFICATIONS: ${WATCHTOWER_NOTIFICATIONS:-}
       WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL: ${WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL:-}
