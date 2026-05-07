@@ -155,7 +155,11 @@ services:
       # EXTERNAL access policy only. This split prevents an over-
       # restrictive API_WHITELIST from accidentally locking the
       # monitoring stack out of the admin surface.
-      traefik.http.routers.dashboard-internal.rule: "(PathPrefix(`/api`) || PathPrefix(`/dashboard`)) && (ClientIP(`100.64.0.0/16`) || ClientIP(`fdff:100:64::/64`))"
+      # Path(`/`) is included so the dashboard-redirect middleware below can
+      # see bare-host requests and 302 them to /dashboard/. Without it, the
+      # router never matches `/` and Traefik returns its built-in 404 before
+      # any middleware runs.
+      traefik.http.routers.dashboard-internal.rule: "(Path(`/`) || PathPrefix(`/api`) || PathPrefix(`/dashboard`)) && (ClientIP(`100.64.0.0/16`) || ClientIP(`fdff:100:64::/64`))"
       traefik.http.routers.dashboard-internal.entrypoints: "api"
       traefik.http.routers.dashboard-internal.service: "api@internal"
       traefik.http.routers.dashboard-internal.priority: "300"
@@ -173,7 +177,9 @@ services:
       # entrypoint cannot bypass the BasicAuth + whitelist gate just by
       # having a long rule string. Override only with explicit priority
       # >= 250 if you really mean to.
-      traefik.http.routers.dashboard-local.rule: "PathPrefix(`/api`) || PathPrefix(`/dashboard`)"
+      # Path(`/`) -- see dashboard-internal rule above. Bare host needs to
+      # reach the dashboard-redirect middleware to land on /dashboard/.
+      traefik.http.routers.dashboard-local.rule: "Path(`/`) || PathPrefix(`/api`) || PathPrefix(`/dashboard`)"
       traefik.http.routers.dashboard-local.entrypoints: "api"
       traefik.http.routers.dashboard-local.service: "api@internal"
       traefik.http.routers.dashboard-local.priority: "200"
@@ -198,7 +204,10 @@ services:
       # router that uses `HostRegexp(\`.*\`)` or another wide matcher on the
       # same entrypoint -- well above any plausible default-scored app rule
       # (which top out around ~150 by rule-string length).
-      traefik.http.routers.dashboard-public.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      # Path(`/`) -- same reason as dashboard-internal/local above. Host()
+      # still scopes the match to the admin FQDN; only `/` requests for that
+      # exact host get the redirect.
+      traefik.http.routers.dashboard-public.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`) && (Path(`/`) || PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
       traefik.http.routers.dashboard-public.entrypoints: "web-secure"
       traefik.http.routers.dashboard-public.service: "api@internal"
       traefik.http.routers.dashboard-public.tls: "true"
