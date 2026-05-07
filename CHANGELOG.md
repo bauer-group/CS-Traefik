@@ -1,3 +1,9 @@
+## [0.9.4](https://github.com/bauer-group/CS-Traefik/compare/v0.9.3...v0.9.4) (2026-05-07)
+
+### ⏪ Reverts
+
+* **networking:** restored v2-identical CGNAT subnets, hardcoded ([9cf73ab](https://github.com/bauer-group/CS-Traefik/commit/9cf73abc640af317a0d5d3570e10658b9dacfea8))
+
 ## [0.9.3](https://github.com/bauer-group/CS-Traefik/compare/v0.9.2...v0.9.3) (2026-05-07)
 
 ### 🐛 Bug Fixes
