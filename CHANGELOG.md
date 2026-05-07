@@ -1,3 +1,9 @@
+## [0.9.10](https://github.com/bauer-group/CS-Traefik/compare/v0.9.9...v0.9.10) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **watchtower:** switched to marrrrrrrrry fork and re-enabled rolling restart ([0cc4b97](https://github.com/bauer-group/CS-Traefik/commit/0cc4b975cd145227e5a260bd7c03cd32a21df2ab))
+
 ## [0.9.9](https://github.com/bauer-group/CS-Traefik/compare/v0.9.8...v0.9.9) (2026-05-07)
 
 ### 🐛 Bug Fixes
