@@ -1,3 +1,9 @@
+## [0.7.0](https://github.com/bauer-group/CS-Traefik/compare/v0.6.0...v0.7.0) (2026-05-07)
+
+### 🚀 Features
+
+* **monitoring:** rounded out the dashboard set -- 4 new + 6 enhanced (Tier 1+2+3+4) ([72d1343](https://github.com/bauer-group/CS-Traefik/commit/72d13437d128fdc76f1a2e34006774e0ff2b5fba))
+
 ## [0.6.0](https://github.com/bauer-group/CS-Traefik/compare/v0.5.5...v0.6.0) (2026-05-06)
 
 ### 🚀 Features
