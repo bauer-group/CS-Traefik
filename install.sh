@@ -819,8 +819,7 @@ EOF
         echo
         if [[ "$(ask_yes_no "Generate a random password?" Y)" == "yes" ]]; then
             admin_pass=$(generate_password)
-            print_warning "Generated admin password: ${BOLD}${admin_pass}${NC}"
-            print_warning "(this is the LAST time you'll see it -- save it now)"
+            print_info "Generated admin password (also shown in summary + saved to .env recovery block)"
         else
             tty_read_silent "${BOLD}? Admin password${NC}: " admin_pass
         fi
@@ -874,7 +873,7 @@ EOF
         if [[ "$INTERACTIVE" == true ]] \
             && [[ "$(ask_yes_no "Generate a random Grafana admin password?" Y)" == "yes" ]]; then
             grafana_pass=$(generate_password)
-            print_warning "Generated Grafana password: ${BOLD}${grafana_pass}${NC}"
+            print_info "Generated Grafana password (also shown in summary + saved to .env recovery block)"
         elif [[ "$INTERACTIVE" == true ]]; then
             tty_read_silent "${BOLD}? Grafana admin password${NC}: " grafana_pass
         else

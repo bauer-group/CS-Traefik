@@ -15,22 +15,33 @@ network is always the public name + `-INTERNAL` suffix.
 
 ### Subnets
 
-Both networks use Carrier-Grade-NAT (CGNAT) IPv4 ranges and ULA IPv6
-ranges to avoid clashing with typical RFC1918 LANs:
+Both networks use RFC1918 high-end IPv4 ranges (172.30 / 172.31) and
+ULA IPv6 ranges. Defaults are env-overridable for hosts where these
+collide with something else:
 
-| Network | IPv4 subnet | IPv6 subnet |
-| --- | --- | --- |
-| `EDGEPROXY` (public) | `100.65.0.0/16` | `fdff:100:65::/64` |
-| `EDGEPROXY-INTERNAL` | `100.64.0.0/16` | `fdff:100:64::/64` |
+| Network | IPv4 subnet | IPv6 subnet | Override env var |
+| --- | --- | --- | --- |
+| `EDGEPROXY` (public) | `172.30.65.0/16` | `fdff:30:65::/64` | `PROXY_SUBNET` / `PROXY_SUBNET_V6` |
+| `EDGEPROXY-INTERNAL` | `172.30.64.0/16` | `fdff:30:64::/64` | `INTERNAL_SUBNET` / `INTERNAL_SUBNET_V6` |
 
 These are private to the Docker host — app stacks see them only
 inside the Docker network namespace. External traffic enters via
 the public port mappings on the Traefik container.
 
-The `100.64.0.0/10` range (RFC 6598) is reserved for CGNAT and is
-guaranteed not to conflict with any consumer ISP's LAN allocation.
-The `fdff:...` IPv6 range is ULA (RFC 4193) — the IPv6 equivalent of
-RFC1918.
+172.16.0.0/12 (RFC1918) is the typical Docker bridge range; we pick
+the high end (172.30 / 172.31) to leave 172.17 .. ~172.20 for
+Docker's auto-allocated bridges. The `fdff:...` IPv6 range is ULA
+(RFC 4193) — the IPv6 equivalent of RFC1918.
+
+**Why these defaults changed in v0.10:** the legacy v2 stack used
+CGNAT (`100.64.0.0/16` + `100.65.0.0/16`). CGNAT is technically the
+"safest" range against ISP-LAN clashes, but in practice the entire
+`100.64.0.0/10` range is claimed by Tailscale (every Tailscale-
+enabled host) and is also frequently allocated by Hetzner Cloud
+Networks. v3 picks RFC1918 high-end so the defaults work on the
+common production case (Tailscale + cloud). If your environment
+specifically requires CGNAT or a different RFC1918 range, override
+via `PROXY_SUBNET` / `INTERNAL_SUBNET` in `.env`.
 
 ## App stack network attachment
 
@@ -103,28 +114,39 @@ older devices and many corporate networks.
 CS-Traefik binds both by default. The container's IPv6 networking is
 enabled via `enable_ipv6: true` on the network definition.
 
-## Why CGNAT subnets for the Docker networks?
+## Subnet override
 
-Container networks normally use `172.17.0.0/16` (default Docker bridge)
-or `172.18.0.0/16`-`172.31.0.0/16` (additional bridges). These are in
-RFC1918 — the same range as many corporate LANs.
+The defaults (`172.30.64.0/16` + `172.30.65.0/16`) suit the common
+case but **collide on hosts that already use those ranges**. Typical
+collision sources:
 
-If your Docker host is on a `172.18.0.0/16` LAN, Docker's auto-
-allocation might pick the same range and break LAN routing. By pinning
-CS-Traefik to `100.64.0.0/16` and `100.65.0.0/16` (CGNAT), we
-guarantee no collision.
+- **Tailscale** — claims all of `100.64.0.0/10` (CGNAT). v2's CGNAT
+  defaults broke on every Tailscale host; v3's 172.30 defaults avoid
+  it.
+- **Hetzner Cloud Networks** — operator-defined network ranges,
+  often inside 10.0.0.0/8 or 100.64.0.0/10.
+- **Default Docker bridges** — `172.17.0.0/16` (`bridge`) and
+  `172.18.0.0/16` .. `~172.20.0.0/16` (additional user-defined
+  bridges). The 172.30 default leaves these alone.
+- **Corporate LAN** — typical 192.168.0.0/16 + 10.0.0.0/8.
 
-Override per-deployment if you have a specific allocation policy:
+If `traefik.sh start` fails with `Pool overlaps with other one on
+this address space`, override in `.env`:
 
-```yaml
-# In docker-compose.yml network definition:
-networks:
-  proxy:
-    ipam:
-      config:
-        - subnet: 192.168.250.0/24    # your custom allocation
-          gateway: 192.168.250.1
+```env
+# Pick a /16 inside RFC1918 nothing else on this host uses.
+# 172.16-31, 192.168, 10/8 are all valid. Avoid the ranges used by
+# the collisions above.
+PROXY_SUBNET=192.168.250.0/24
+PROXY_SUBNET_V6=fdff:192:250::/64
+INTERNAL_SUBNET=192.168.249.0/24
+INTERNAL_SUBNET_V6=fdff:192:249::/64
 ```
+
+The `dashboard-internal` router's ClientIP rule (the network-trust
+shortcut for the monitoring stack) reads the same env vars, so a
+subnet override stays consistent across the stack — no need to
+hand-edit the compose file.
 
 ## Internal network isolation
 

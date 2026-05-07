@@ -148,13 +148,14 @@ services:
       # theatre AND create an operational footgun (operators forgetting
       # credentials in monitoring containers).
       #
-      # Hardcoded CIDRs (NOT taken from API_WHITELIST): the internal subnet
-      # ranges are fixed by the network: definition at the bottom of this
-      # file (100.64.0.0/16 + fdff:100:64::/64) -- they are infrastructure
-      # constants, not policy. API_WHITELIST is for EXTERNAL access policy
-      # only. This split prevents an over-restrictive API_WHITELIST from
-      # accidentally locking the monitoring stack out of the admin surface.
-      traefik.http.routers.dashboard-internal.rule: "(PathPrefix(`/api`) || PathPrefix(`/dashboard`)) && (ClientIP(`100.64.0.0/16`) || ClientIP(`fdff:100:64::/64`))"
+      # CIDRs come from the same env vars as the network: definition at
+      # the bottom of this file (default 172.30.64.0/16 + fdff:30:64::/64).
+      # They are infrastructure constants, not policy -- API_WHITELIST is
+      # for EXTERNAL access policy only. This split prevents an over-
+      # restrictive API_WHITELIST from accidentally locking the monitoring
+      # stack out of the admin surface. If you override INTERNAL_SUBNET in
+      # .env, this rule follows automatically (Compose substitutes both).
+      traefik.http.routers.dashboard-internal.rule: "(PathPrefix(`/api`) || PathPrefix(`/dashboard`)) && (ClientIP(`${INTERNAL_SUBNET:-172.30.64.0/16}`) || ClientIP(`${INTERNAL_SUBNET_V6:-fdff:30:64::/64}`))"
       traefik.http.routers.dashboard-internal.entrypoints: "api"
       traefik.http.routers.dashboard-internal.service: "api@internal"
       traefik.http.routers.dashboard-internal.priority: "300"
@@ -516,12 +517,27 @@ services:
 # Networks
 # =============================================================================
 # `proxy` = EDGEPROXY public bridge -- service stacks attach as
-# `external: true` to be discovered by Traefik. Subnet uses CGN range
-# (100.65.0.0/16) to avoid clashing with typical RFC1918 LANs. Identical
-# layout to the legacy EDGEPROXY v2 stack so existing apps keep working.
+# `external: true` to be discovered by Traefik.
 #
 # `proxy-internal` = internal-only sidecar network for Traefik <-> monitoring
 # chatter. Not reachable from the host's public interfaces.
+#
+# SUBNETS: defaults are RFC1918 high-end (172.30 + 172.31). The legacy
+# v2 stack used CGNAT (100.64/16 + 100.65/16); we moved off that
+# default because CGNAT (RFC 6598, 100.64.0.0/10) collides with
+# Tailscale (entire 100.64/10 is Tailscale's IP pool), Hetzner Cloud
+# Networks, and several VPN tools that assume the CGN range is theirs
+# alone. The 172.30/31 defaults avoid Docker's auto-bridge range
+# (172.17 .. 172.20-ish) and corporate LAN ranges (192.168 / 10/8).
+#
+# Override via .env if these conflict with YOUR environment:
+#   PROXY_SUBNET=172.30.65.0/16
+#   PROXY_SUBNET_V6=fdff:30:65::/64
+#   INTERNAL_SUBNET=172.30.64.0/16
+#   INTERNAL_SUBNET_V6=fdff:30:64::/64
+#
+# The dashboard-internal router's ClientIP rule (above) reads the same
+# vars, so a subnet override stays consistent across the stack.
 networks:
   proxy:
     name: ${NETWORK_NAME:-EDGEPROXY}
@@ -531,10 +547,8 @@ networks:
       com.docker.network.enable_ipv6: "true"
     ipam:
       config:
-        - subnet: 100.65.0.0/16
-          gateway: 100.65.0.1
-        - subnet: fdff:100:65::/64
-          gateway: fdff:100:65::1
+        - subnet: ${PROXY_SUBNET:-172.30.65.0/16}
+        - subnet: ${PROXY_SUBNET_V6:-fdff:30:65::/64}
   proxy-internal:
     name: ${NETWORK_NAME:-EDGEPROXY}-INTERNAL
     driver: bridge
@@ -544,7 +558,5 @@ networks:
       com.docker.network.enable_ipv6: "true"
     ipam:
       config:
-        - subnet: 100.64.0.0/16
-          gateway: 100.64.0.1
-        - subnet: fdff:100:64::/64
-          gateway: fdff:100:64::1
+        - subnet: ${INTERNAL_SUBNET:-172.30.64.0/16}
+        - subnet: ${INTERNAL_SUBNET_V6:-fdff:30:64::/64}

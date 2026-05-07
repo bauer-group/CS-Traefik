@@ -152,7 +152,7 @@ applies to any given request, depending on the source IP:
 
 | Router | Priority | Source-IP rule | Auth required? | Whitelist? | Used by |
 | --- | --- | --- | --- | --- | --- |
-| `dashboard-internal` | 300 | `ClientIP(100.64.0.0/16)` OR `ClientIP(fdff:100:64::/64)` | **No** | **No** | Monitoring stack containers on the EDGEPROXY-INTERNAL Docker network |
+| `dashboard-internal` | 300 | `ClientIP(${INTERNAL_SUBNET:-172.30.64.0/16})` OR `ClientIP(${INTERNAL_SUBNET_V6:-fdff:30:64::/64})` | **No** | **No** | Monitoring stack containers on the EDGEPROXY-INTERNAL Docker network |
 | `dashboard-public` | 300 | `Host(${API_HOST})` on `web-secure` | **BasicAuth** | **`API_WHITELIST`** | Mode-3 only -- public-FQDN access over HTTPS |
 | `dashboard-public-http` | 300 | `Host(${API_HOST})` on `web` | (redirect only) | **`API_WHITELIST`** | Mode-3 only -- HTTP -> HTTPS redirect for the admin FQDN |
 | `dashboard-local` | 200 (catch-all) | Everything else | **BasicAuth** | **`API_WHITELIST`** | Operators via host loopback / SSH tunnel |
@@ -260,8 +260,8 @@ levels:
 
 | Network | Subnet | Purpose | Admin-access path |
 | --- | --- | --- | --- |
-| `EDGEPROXY` (public) | `100.65.0.0/16` + `fdff:100:65::/64` | Customer-facing apps that receive **end-user traffic** via Traefik | **None.** Apps reach Traefik for traffic forwarding only; admin surface is unreachable from this network because (a) `dashboard-internal` rule does not match these CIDRs and (b) `API_WHITELIST` does not include them. A compromised public-side app cannot escalate into the admin API. |
-| `EDGEPROXY-INTERNAL` | `100.64.0.0/16` + `fdff:100:64::/64` | Monitoring stack (Prometheus, Grafana, Loki, Promtail, Alertmanager, node-exporter, cAdvisor) | **Auto-allowed** via `dashboard-internal` router. No BasicAuth, no whitelist gate -- network membership IS the trust. |
+| `EDGEPROXY` (public) | `${PROXY_SUBNET:-172.30.65.0/16}` + `${PROXY_SUBNET_V6:-fdff:30:65::/64}` | Customer-facing apps that receive **end-user traffic** via Traefik | **None.** Apps reach Traefik for traffic forwarding only; admin surface is unreachable from this network because (a) `dashboard-internal` rule does not match these CIDRs and (b) `API_WHITELIST` does not include them. A compromised public-side app cannot escalate into the admin API. |
+| `EDGEPROXY-INTERNAL` | `${INTERNAL_SUBNET:-172.30.64.0/16}` + `${INTERNAL_SUBNET_V6:-fdff:30:64::/64}` | Monitoring stack (Prometheus, Grafana, Loki, Promtail, Alertmanager, node-exporter, cAdvisor) | **Auto-allowed** via `dashboard-internal` router. No BasicAuth, no whitelist gate -- network membership IS the trust. |
 | Host loopback / LAN / VPN | `127.0.0.1`, `::1`, RFC1918 ranges | Operator (SSH tunnel / direct LAN access) | **Gated** via `dashboard-local`: must be in `API_WHITELIST` AND must clear BasicAuth. |
 
 ### Mode 3 (public FQDN) -- add operator IPs
@@ -275,9 +275,9 @@ API_WHITELIST=127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 
 Where `100.64.0.0/10` is the full CGNAT range (Tailscale / WireGuard
 meshes) and `203.0.113.0/24` is your office's public range.
 
-The EDGEPROXY-INTERNAL Docker subnet (`100.64.0.0/16`) is *not* added
-here -- it is already handled by the `dashboard-internal` router
-without going through `API_WHITELIST` at all.
+The EDGEPROXY-INTERNAL Docker subnet (default `172.30.64.0/16`) is
+*not* added here -- it is already handled by the `dashboard-internal`
+router without going through `API_WHITELIST` at all.
 
 ## BasicAuth credentials
 

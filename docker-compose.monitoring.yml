@@ -166,7 +166,17 @@ services:
       GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
       GF_SECURITY_ALLOW_EMBEDDING: "false"
       GF_SECURITY_COOKIE_SAMESITE: "lax"
-      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Anonymous viewer is ON by default -- Grafana sits BEHIND the
+      # Traefik api-entrypoint BasicAuth + IP whitelist, so a second
+      # login at the Grafana layer is friction without security gain
+      # (you've already proven you're trusted to reach the admin surface).
+      # Editing dashboards / changing settings still requires the
+      # GF_SECURITY_ADMIN_USER/PASSWORD login. To force a Grafana login
+      # for read-only viewing too, set GF_AUTH_ANONYMOUS_ENABLED=false
+      # in .env (e.g. multi-tenant teams that share the api wall but
+      # want per-user audit trails).
+      GF_AUTH_ANONYMOUS_ENABLED: "${GF_AUTH_ANONYMOUS_ENABLED:-true}"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "${GF_AUTH_ANONYMOUS_ORG_ROLE:-Viewer}"
       GF_AUTH_BASIC_ENABLED: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_USERS_ALLOW_ORG_CREATE: "false"
