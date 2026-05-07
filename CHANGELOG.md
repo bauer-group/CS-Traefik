@@ -1,3 +1,9 @@
+## [0.9.8](https://github.com/bauer-group/CS-Traefik/compare/v0.9.7...v0.9.8) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **watchtower:** dropped WATCHTOWER_ROLLING_RESTART so monitoring stack does not loop ([ae7797d](https://github.com/bauer-group/CS-Traefik/commit/ae7797de8d703b23652cd941138017eee16779c3))
+
 ## [0.9.7](https://github.com/bauer-group/CS-Traefik/compare/v0.9.6...v0.9.7) (2026-05-07)
 
 ### 🐛 Bug Fixes
