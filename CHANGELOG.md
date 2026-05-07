@@ -1,3 +1,9 @@
+## [0.9.12](https://github.com/bauer-group/CS-Traefik/compare/v0.9.11...v0.9.12) (2026-05-07)
+
+### ♻️ Refactoring
+
+* **watchtower:** dropped redundant log-format and log-level env knobs ([e36f6d9](https://github.com/bauer-group/CS-Traefik/commit/e36f6d9e0c7ec380e7ff39ad3ccb73c4bcc19ff3))
+
 ## [0.9.11](https://github.com/bauer-group/CS-Traefik/compare/v0.9.10...v0.9.11) (2026-05-07)
 
 ### 🐛 Bug Fixes
