@@ -1,3 +1,9 @@
+## [0.9.2](https://github.com/bauer-group/CS-Traefik/compare/v0.9.1...v0.9.2) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **installer,wizard:** made curl|bash flow actually work + minimal .env output ([933a34d](https://github.com/bauer-group/CS-Traefik/commit/933a34d390272bf826bfd82b8dd6f4f0baba48ef))
+
 ## [0.9.1](https://github.com/bauer-group/CS-Traefik/compare/v0.9.0...v0.9.1) (2026-05-07)
 
 ### 🐛 Bug Fixes
