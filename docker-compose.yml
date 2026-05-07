@@ -63,6 +63,24 @@ services:
     security_opt:
       - no-new-privileges:true
     stop_grace_period: 30s
+    # OOM bias -- light protection only. The hierarchy under host memory
+    # pressure is:
+    #
+    #   Tier 0  systemd init / kernel threads      kernel-immune (auto)
+    #   Tier 1  sshd, dockerd                      -500 (distro default)
+    #   Tier 2  Traefik                             -50 <-- THIS LINE
+    #   Tier 3  customer-facing app containers       0  (no override)
+    #   Tier 4  monitoring containers              +200 (compose.monitoring.yml)
+    #
+    # Why -50 not stronger: a reverse proxy without backends is dead
+    # weight. If app containers (at 0) start getting killed under
+    # memory pressure, Traefik should be in the same general danger
+    # zone, not artificially shielded for tiers longer. -50 just gives
+    # Traefik a slight edge over monitoring (+200) so request routing
+    # stays alive long enough for restart loops to recover. SSH +
+    # dockerd remain at the strongest protection (kernel sees them as
+    # essential for host management).
+    oom_score_adj: -50
     labels:
       # Opt-in to the optional auto-update profile via Watchtower.
       com.centurylinklabs.watchtower.enable: "true"

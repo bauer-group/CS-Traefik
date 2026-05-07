@@ -61,6 +61,12 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # Killed BEFORE Traefik (-50) and apps (0) under host memory pressure.
+    # +200 means strongly preferred OOM victim. No pids_limit -- legitimate
+    # service workloads vary too widely (Prometheus, Grafana with plugins,
+    # cAdvisor on busy hosts) to set a sensible cap that does not turn
+    # into a footgun under normal load spikes.
+    oom_score_adj: 200
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -133,8 +139,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${PROMETHEUS_CPU_LIMIT:-4}"
-          memory: ${PROMETHEUS_MEMORY_LIMIT:-4g}
+          cpus: "${PROMETHEUS_CPU_LIMIT:-1}"
+          memory: ${PROMETHEUS_MEMORY_LIMIT:-1g}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -151,6 +157,7 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    oom_score_adj: 200
     environment:
       TZ: ${TIME_ZONE:-Etc/UTC}
 
@@ -239,8 +246,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${GRAFANA_CPU_LIMIT:-2}"
-          memory: ${GRAFANA_MEMORY_LIMIT:-1g}
+          cpus: "${GRAFANA_CPU_LIMIT:-1}"
+          memory: ${GRAFANA_MEMORY_LIMIT:-384m}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -257,6 +264,7 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    oom_score_adj: 200
     command:
       - "-config.file=/etc/loki/loki-config.yml"
       - "-config.expand-env=true"
@@ -310,8 +318,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${LOKI_CPU_LIMIT:-2}"
-          memory: ${LOKI_MEMORY_LIMIT:-2g}
+          cpus: "${LOKI_CPU_LIMIT:-1}"
+          memory: ${LOKI_MEMORY_LIMIT:-768m}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -327,6 +335,7 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    oom_score_adj: 200
     command:
       - "-config.file=/etc/promtail/promtail-config.yml"
       - "-config.expand-env=true"
@@ -363,8 +372,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${PROMTAIL_CPU_LIMIT:-1}"
-          memory: ${PROMTAIL_MEMORY_LIMIT:-512m}
+          cpus: "${PROMTAIL_CPU_LIMIT:-0.5}"
+          memory: ${PROMTAIL_MEMORY_LIMIT:-256m}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -381,6 +390,7 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    oom_score_adj: 200
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
       - "--storage.path=/alertmanager"
@@ -436,8 +446,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${ALERTMANAGER_CPU_LIMIT:-1}"
-          memory: ${ALERTMANAGER_MEMORY_LIMIT:-256m}
+          cpus: "${ALERTMANAGER_CPU_LIMIT:-0.25}"
+          memory: ${ALERTMANAGER_MEMORY_LIMIT:-128m}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -456,6 +466,7 @@ services:
       - SYS_TIME
     security_opt:
       - no-new-privileges:true
+    oom_score_adj: 200
     command:
       - "--path.procfs=/host/proc"
       - "--path.sysfs=/host/sys"
@@ -488,7 +499,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${NODE_EXPORTER_CPU_LIMIT:-1}"
+          cpus: "${NODE_EXPORTER_CPU_LIMIT:-0.25}"
           memory: ${NODE_EXPORTER_MEMORY_LIMIT:-128m}
     logging: *default-logging
 
@@ -502,6 +513,7 @@ services:
     restart: unless-stopped
     profiles: [monitoring]
     privileged: true   # cgroup access
+    oom_score_adj: 200
     devices:
       - /dev/kmsg:/dev/kmsg
     command:
@@ -538,6 +550,6 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${CADVISOR_CPU_LIMIT:-1}"
-          memory: ${CADVISOR_MEMORY_LIMIT:-512m}
+          cpus: "${CADVISOR_CPU_LIMIT:-0.5}"
+          memory: ${CADVISOR_MEMORY_LIMIT:-384m}
     logging: *default-logging

@@ -111,6 +111,116 @@ not exercise:
 | Failover behaviour | Services were not killed mid-operation. | Stop Loki (`docker compose stop loki`); verify Promtail buffers / retries without crashing, Grafana shows clear error on log queries; restart Loki and verify recovery. |
 | Long-term stability | Tests ran for minutes, not days. Memory leaks, log-rotation under sustained ingest, ACME renewal cycle (60-day pre-expiry trigger) all need real-time observation. | Run a staging deployment for at least one ACME renewal cycle (60 days) before promoting. |
 
+## Resource isolation: what the stack does (and does NOT) touch on the host
+
+The stack is layered to ensure that no monitoring container can ever
+take down Traefik, but ALSO that no setting reaches into the host's
+own kernel / systemd / Docker-engine state.
+
+### What is configured (per-container only)
+
+All settings below are container-scoped via Docker / cgroup
+mechanisms. None of them modify the host kernel, sysctl, /etc, or
+systemd:
+
+**OOM hierarchy (under host memory pressure):**
+
+| Tier | Process / Container | `oom_score_adj` | Notes |
+| --- | --- | --- | --- |
+| 0 | systemd init / kernel threads | n/a (immune) | Kernel auto-protects. |
+| 1 | sshd, dockerd | -500 (distro default) | Verify with `traefik.sh check-host-isolation`. |
+| 2 | **traefik** | **-50** | Light bias only. A reverse proxy without backends is dead weight, so Traefik does not get tier-strong protection -- it shares the danger zone with apps. |
+| 3 | customer-facing apps | 0 (no override) | Killed before monitoring, in roughly the same band as Traefik. |
+| 4 | monitoring helpers | +200 | Preferred OOM victim (intentional). |
+
+**Per-container cgroup settings** (small-host defaults; overridable via `.env`):
+
+| Container | `oom_score_adj` | Default Memory | Default CPU |
+| --- | --- | --- | --- |
+| traefik | -50 | (uncapped on purpose) | (uncapped on purpose) |
+| prometheus | +200 | `${PROMETHEUS_MEMORY_LIMIT:-1g}` | `${PROMETHEUS_CPU_LIMIT:-1}` |
+| grafana | +200 | `${GRAFANA_MEMORY_LIMIT:-384m}` | `${GRAFANA_CPU_LIMIT:-1}` |
+| loki | +200 | `${LOKI_MEMORY_LIMIT:-768m}` | `${LOKI_CPU_LIMIT:-1}` |
+| promtail | +200 | `${PROMTAIL_MEMORY_LIMIT:-256m}` | `${PROMTAIL_CPU_LIMIT:-0.5}` |
+| alertmanager | +200 | `${ALERTMANAGER_MEMORY_LIMIT:-128m}` | `${ALERTMANAGER_CPU_LIMIT:-0.25}` |
+| node-exporter | +200 | `${NODE_EXPORTER_MEMORY_LIMIT:-128m}` | `${NODE_EXPORTER_CPU_LIMIT:-0.25}` |
+| cadvisor | +200 | `${CADVISOR_MEMORY_LIMIT:-384m}` | `${CADVISOR_CPU_LIMIT:-0.5}` |
+| watchtower | +200 | `${WATCHTOWER_MEMORY_LIMIT:-256m}` | `${WATCHTOWER_CPU_LIMIT:-0.5}` |
+
+**No `pids_limit`** is set on any container by design. Per-container
+PID caps look harmless but in practice are a footgun: legitimate
+service workloads (Prometheus on a busy host, Grafana with several
+plugins, cAdvisor in high-churn environments) routinely vary in
+thread count and a sensible cap is hard to set without occasionally
+strangling normal operation. Without `pids_limit`, containers
+inherit the host PID quota (typically 4 million), which is plenty.
+
+Defaults sized for an 8 GB / 4-core host (small-host-safe). Total
+monitoring footprint: ~3.2 GB memory caps, ~5 cores total cap.
+Larger hosts override the values via `.env` -- see commented
+examples in `.env.example`.
+
+### What the stack does NOT touch on the host
+
+- No modifications to `/etc/sysctl.conf` or any `/proc/sys/...` writes.
+- No installed systemd units, no `OOMScoreAdjust=` set on
+  `dockerd.service` or any host service.
+- No host-wide ulimit / PAM changes.
+- No persistent kernel parameters (`/etc/sysctl.d/...`).
+- The only host filesystem the stack writes to is `${DATA_DIRECTORY}`
+  (default `/opt/edgeproxy`) which the operator explicitly chose.
+- Read-only mounts (`/proc`, `/sys`, `/var/lib/docker`,
+  `/var/run/docker.sock`) are observation surfaces for node-exporter,
+  cAdvisor and Promtail. The mode is `:ro` -- writes from the
+  container would fail at the kernel boundary even if the container
+  process tried.
+
+### What the stack EXPECTS the host to provide
+
+This stack does not modify host services, so a few host-level
+settings are the operator's responsibility for full memory-pressure
+robustness. **All optional -- the stack runs without them, just with
+slightly lower guarantees in extreme OOM scenarios:**
+
+- **`dockerd.service` should have `OOMScoreAdjust=-500`** (or stronger
+  negative) at the systemd unit level. Most modern distros set this
+  in their packaging by default. Verify with:
+
+  ```bash
+  systemctl show dockerd | grep -i OOMScoreAdjust
+  # Expected: OOMScoreAdjust=-500 (or similar negative)
+  ```
+
+  If unset on your distro, add a drop-in (does not touch our stack):
+
+  ```bash
+  sudo systemctl edit dockerd
+  # add the two lines:
+  [Service]
+  OOMScoreAdjust=-500
+  ```
+
+- **`sshd` should be similarly protected** so an OOM event under load
+  cannot lock you out of the host.
+
+- **Disk for `${DATA_DIRECTORY}`** ideally on a separate volume so
+  Prometheus TSDB / Loki chunk writes do not contend with the
+  Traefik log file or the OS root partition.
+
+If you cannot or do not want to set these host-level protections,
+override Traefik's `oom_score_adj` to a softer value in
+`docker-compose.override.yml`:
+
+```yaml
+services:
+  traefik:
+    oom_score_adj: -500   # less extreme than the shipped -1000
+```
+
+That puts Traefik on the same priority tier as a typical
+distro-protected `dockerd` -- still very unlikely to be killed, but
+the kernel is not forced to exhaust every other option first.
+
 ## Healthcheck `start_period` reference
 
 Tuned values in the shipped compose files:

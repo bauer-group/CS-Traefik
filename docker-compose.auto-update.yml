@@ -36,6 +36,7 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    oom_score_adj: 200
     environment:
       TZ: ${TIME_ZONE:-Etc/UTC}
 
@@ -71,6 +72,6 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${WATCHTOWER_CPU_LIMIT:-1}"
+          cpus: "${WATCHTOWER_CPU_LIMIT:-0.5}"
           memory: ${WATCHTOWER_MEMORY_LIMIT:-256m}
     logging: *default-logging

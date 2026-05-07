@@ -387,6 +387,121 @@ cmd_backup() {
     echo "            prometheus blocks (WAL excluded), alertmanager state."
 }
 
+cmd_check_host_isolation() {
+    print_header "Host Isolation Check"
+
+    local issues=0
+
+    # ---- 1. Docker engine OOM protection -----------------------------------
+    print_info "Checking dockerd OOM protection..."
+    if command -v systemctl >/dev/null 2>&1; then
+        local docker_unit
+        docker_unit=$(systemctl show docker 2>/dev/null | grep -E "^OOMScoreAdjust=" | cut -d= -f2)
+        if [[ -z "$docker_unit" || "$docker_unit" == "0" ]]; then
+            print_warning "dockerd.service has no OOMScoreAdjust (or 0). Under extreme memory"
+            print_warning "pressure on this host, the kernel could pick dockerd as an OOM"
+            print_warning "victim before killing other less-important processes."
+            print_warning ""
+            print_warning "Recommended fix (one-time, does not touch CS-Traefik):"
+            print_warning "  sudo systemctl edit docker"
+            print_warning "  # add: [Service]"
+            print_warning "  #      OOMScoreAdjust=-500"
+            print_warning "  sudo systemctl daemon-reload && sudo systemctl restart docker"
+            issues=$((issues + 1))
+        else
+            print_success "dockerd OOMScoreAdjust=$docker_unit (kernel-protected)"
+        fi
+    else
+        print_warning "systemctl not available -- cannot verify dockerd OOM protection."
+        print_warning "Skipping (Docker Desktop / non-systemd host)."
+    fi
+    echo
+
+    # ---- 2. SSH daemon OOM protection --------------------------------------
+    print_info "Checking sshd OOM protection..."
+    if command -v systemctl >/dev/null 2>&1; then
+        local sshd_unit
+        sshd_unit=$(systemctl show sshd ssh 2>/dev/null | grep -E "^OOMScoreAdjust=" | cut -d= -f2 | head -1)
+        if [[ -z "$sshd_unit" || "$sshd_unit" == "0" ]]; then
+            print_warning "sshd has no OOMScoreAdjust. Under OOM pressure you might lose your"
+            print_warning "remote shell. Same fix pattern as for dockerd above (sudo systemctl"
+            print_warning "edit ssh / sshd, add OOMScoreAdjust=-500)."
+            issues=$((issues + 1))
+        else
+            print_success "sshd OOMScoreAdjust=$sshd_unit"
+        fi
+    fi
+    echo
+
+    # ---- 3. Verify our container OOM scores --------------------------------
+    print_info "Checking running container OOM scores (if stack is up)..."
+    if check_docker 2>/dev/null && docker ps --format '{{.Names}}' | grep -q "${STACK_NAME:-edgeproxy}"; then
+        for c in ${STACK_NAME:-edgeproxy}-traefik ${STACK_NAME:-edgeproxy}-prometheus ${STACK_NAME:-edgeproxy}-grafana; do
+            if docker inspect "$c" >/dev/null 2>&1; then
+                local pid
+                pid=$(docker inspect -f '{{.State.Pid}}' "$c")
+                if [[ "$pid" != "0" && -r "/proc/$pid/oom_score_adj" ]]; then
+                    local adj
+                    adj=$(cat "/proc/$pid/oom_score_adj")
+                    case "$c" in
+                        *-traefik)
+                            if [[ "$adj" == "-50" ]]; then
+                                print_success "$c oom_score_adj=$adj (light bias, sits with apps below sshd/dockerd)"
+                            else
+                                print_warning "$c oom_score_adj=$adj (expected -50)"
+                                issues=$((issues + 1))
+                            fi
+                            ;;
+                        *)
+                            if [[ "$adj" == "200" ]]; then
+                                print_success "$c oom_score_adj=$adj (preferred victim, OK)"
+                            else
+                                print_warning "$c oom_score_adj=$adj (expected 200)"
+                                issues=$((issues + 1))
+                            fi
+                            ;;
+                    esac
+                else
+                    print_info "$c -- /proc not readable (Docker Desktop / non-Linux host)"
+                fi
+            fi
+        done
+    else
+        print_info "Stack not running -- skip live OOM-score check."
+    fi
+    echo
+
+    # ---- 4. Data directory mount ------------------------------------------
+    print_info "Checking ${DATA_DIRECTORY:-./data} mount layout..."
+    if [[ -d "${DATA_DIRECTORY:-./data}" ]]; then
+        if command -v df >/dev/null 2>&1; then
+            local data_fs
+            data_fs=$(df --output=source "${DATA_DIRECTORY:-./data}" 2>/dev/null | tail -1)
+            local root_fs
+            root_fs=$(df --output=source / 2>/dev/null | tail -1)
+            if [[ "$data_fs" == "$root_fs" ]]; then
+                print_warning "DATA_DIRECTORY (${DATA_DIRECTORY:-./data}) is on the same"
+                print_warning "filesystem as / -- a Prometheus / Loki write spike can"
+                print_warning "starve the OS root I/O. For production, mount this on a"
+                print_warning "dedicated volume."
+            else
+                print_success "DATA_DIRECTORY on separate filesystem ($data_fs)"
+            fi
+        fi
+    fi
+    echo
+
+    # ---- Summary -----------------------------------------------------------
+    if [[ $issues -eq 0 ]]; then
+        print_success "Host isolation looks good -- the stack will not put Traefik or"
+        print_success "host-critical processes at risk under memory pressure."
+    else
+        print_warning "$issues recommendation(s) above. The stack still runs safely; these"
+        print_warning "are extra hardening steps for production deployments. None of"
+        print_warning "them affect CS-Traefik containers -- they are host-side concerns."
+    fi
+}
+
 cmd_migrate_acme() {
     print_header "Migrate ACME Certificates from Legacy Stack"
     require_env
@@ -667,6 +782,9 @@ ${BOLD}Maintenance:${NC}
     setup                Re-run the interactive .env wizard
     validate             Syntax-check compose + traefik config
     backup               Snapshot .env, config, ACME certs, DBs to a tar.gz
+    check-host-isolation Verify host-side hardening (dockerd / sshd OOM
+                         protection, data-dir on separate FS, container
+                         OOM scores live). Read-only -- no host changes.
     destroy              Tear down (containers + volumes; bind data kept)
 
 ${BOLD}Migration (transient):${NC}
@@ -707,6 +825,7 @@ case "${1:-help}" in
     setup|init)          shift; cmd_setup    "$@" ;;
     validate|check)      shift; cmd_validate "$@" ;;
     backup)              shift; cmd_backup   "$@" ;;
+    check-host-isolation) shift; cmd_check_host_isolation "$@" ;;
     migrate-acme)        shift; cmd_migrate_acme "$@" ;;
     destroy|nuke)        shift; cmd_destroy  "$@" ;;
     help|-h|--help|"")   cmd_help            ;;
