@@ -43,13 +43,13 @@ For real disaster recovery, **copy backups off-host**:
 
 ```bash
 # Add to root crontab: weekly off-host copy
-0 5 * * 0 rsync -a /opt/edgeproxy/backups/ backup-host:/backups/edgeproxy/
+0 5 * * 0 rsync -a /opt/edgeproxy/data/backups/ backup-host:/backups/edgeproxy/
 ```
 
 Or push to S3:
 
 ```bash
-aws s3 sync /opt/edgeproxy/backups/ s3://my-backups/edgeproxy/
+aws s3 sync /opt/edgeproxy/data/backups/ s3://my-backups/edgeproxy/
 ```
 
 The backups are gitignored — they never end up in the repository.
@@ -69,7 +69,7 @@ Daily 04:00. Adjust to your retention policy.
 For old-backup cleanup, add a one-liner:
 
 ```cron
-30 4 * * * root find /opt/edgeproxy/backups/ -name 'edgeproxy_*.tar.gz' -mtime +30 -delete
+30 4 * * * root find /opt/edgeproxy/data/backups/ -name 'edgeproxy_*.tar.gz' -mtime +30 -delete
 ```
 
 Keeps the last 30 days.
@@ -96,11 +96,11 @@ sudo tar -xzf /path/to/edgeproxy_20260504_040000.tar.gz \
 
 # 3. Fix permissions (the wizard normally handles this)
 sudo chmod 600 /opt/edgeproxy/.env
-sudo chmod 700 /opt/edgeproxy/traefik/letsencrypt/
-sudo chmod 600 /opt/edgeproxy/traefik/letsencrypt/*.json
-sudo chown -R 472:472 /opt/edgeproxy/grafana/
-sudo chown -R 65534:65534 /opt/edgeproxy/prometheus/
-sudo chown -R 65534:65534 /opt/edgeproxy/alertmanager/
+sudo chmod 700 /opt/edgeproxy/data/traefik/letsencrypt/
+sudo chmod 600 /opt/edgeproxy/data/traefik/letsencrypt/*.json
+sudo chown -R 472:472 /opt/edgeproxy/data/grafana/
+sudo chown -R 65534:65534 /opt/edgeproxy/data/prometheus/
+sudo chown -R 65534:65534 /opt/edgeproxy/data/alertmanager/
 
 # 4. Start the stack
 sudo /opt/edgeproxy/traefik.sh start
@@ -121,10 +121,10 @@ sudo /opt/edgeproxy/traefik.sh restart
 If you nuked `traefik/letsencrypt/` accidentally:
 
 ```bash
-sudo tar -xzf backup.tar.gz traefik/letsencrypt/ -O > /tmp/letsencrypt.tar
+sudo tar -xzf backup.tar.gz data/traefik/letsencrypt/ -O > /tmp/letsencrypt.tar
 sudo tar -xf /tmp/letsencrypt.tar -C /opt/edgeproxy/
-sudo chmod 700 /opt/edgeproxy/traefik/letsencrypt/
-sudo chmod 600 /opt/edgeproxy/traefik/letsencrypt/*.json
+sudo chmod 700 /opt/edgeproxy/data/traefik/letsencrypt/
+sudo chmod 600 /opt/edgeproxy/data/traefik/letsencrypt/*.json
 
 sudo /opt/edgeproxy/traefik.sh restart
 ```
@@ -145,10 +145,10 @@ docker compose -f /opt/edgeproxy/docker-compose.yml \
                --profile monitoring stop grafana
 
 # Extract just the Grafana data
-sudo tar -xzf backup.tar.gz grafana/ -O > /tmp/grafana.tar
-sudo rm -rf /opt/edgeproxy/grafana/
+sudo tar -xzf backup.tar.gz data/grafana/ -O > /tmp/grafana.tar
+sudo rm -rf /opt/edgeproxy/data/grafana/
 sudo tar -xf /tmp/grafana.tar -C /opt/edgeproxy/
-sudo chown -R 472:472 /opt/edgeproxy/grafana/
+sudo chown -R 472:472 /opt/edgeproxy/data/grafana/
 
 # Restart Grafana
 docker compose -f /opt/edgeproxy/docker-compose.yml \
@@ -168,10 +168,10 @@ docker compose -f /opt/edgeproxy/docker-compose.yml \
                --profile monitoring stop prometheus
 
 # Extract Prometheus blocks (NOT wal — wal is for the LIVE process)
-sudo tar -xzf backup.tar.gz prometheus/ -O > /tmp/prom.tar
-sudo rm -rf /opt/edgeproxy/prometheus/
+sudo tar -xzf backup.tar.gz data/prometheus/ -O > /tmp/prom.tar
+sudo rm -rf /opt/edgeproxy/data/prometheus/
 sudo tar -xf /tmp/prom.tar -C /opt/edgeproxy/
-sudo chown -R 65534:65534 /opt/edgeproxy/prometheus/
+sudo chown -R 65534:65534 /opt/edgeproxy/data/prometheus/
 
 docker compose ... up -d prometheus
 ```
@@ -197,22 +197,22 @@ Prometheus rebuilds the WAL from the latest block on startup. Up to
 
 ```bash
 # Inspect the archive content
-sudo tar -tzf /opt/edgeproxy/backups/edgeproxy_*.tar.gz | head -30
+sudo tar -tzf /opt/edgeproxy/data/backups/edgeproxy_*.tar.gz | head -30
 
 # Should include:
 # .env
 # config/traefik/...
-# traefik/letsencrypt/letsencrypt.json
-# grafana/grafana.db
-# prometheus/01HABCDE.../meta.json    (numbered blocks)
-# alertmanager/silences
+# data/traefik/letsencrypt/letsencrypt.json
+# data/grafana/grafana.db
+# data/prometheus/01HABCDE.../meta.json    (numbered blocks)
+# data/alertmanager/silences
 
 # Check size — should be at least a few MB
-ls -lh /opt/edgeproxy/backups/
+ls -lh /opt/edgeproxy/data/backups/
 
 # Don't trust an archive you haven't extracted at least once
 mkdir /tmp/restore-test
-sudo tar -xzf /opt/edgeproxy/backups/edgeproxy_*.tar.gz -C /tmp/restore-test
+sudo tar -xzf /opt/edgeproxy/data/backups/edgeproxy_*.tar.gz -C /tmp/restore-test
 ls -la /tmp/restore-test/
 sudo rm -rf /tmp/restore-test
 ```
@@ -230,8 +230,8 @@ new layout). Manual cherry-pick of the ACME JSON works:
 
 ```bash
 sudo cp /path/to/legacy/data/acme.json \
-        /opt/edgeproxy/traefik/letsencrypt/letsencrypt.json
-sudo chmod 600 /opt/edgeproxy/traefik/letsencrypt/letsencrypt.json
+        /opt/edgeproxy/data/traefik/letsencrypt/letsencrypt.json
+sudo chmod 600 /opt/edgeproxy/data/traefik/letsencrypt/letsencrypt.json
 ```
 
 The Traefik ACME storage schema is compatible across v2 and v3 — no

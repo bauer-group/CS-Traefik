@@ -439,7 +439,12 @@ run_wizard() {
     stack_name=$(ask "Compose project name (lowercase)" "edgeproxy")
     network_name=$(ask "Public network name (legacy default: EDGEPROXY)" "EDGEPROXY")
     time_zone=$(ask "Timezone (IANA name)" "$default_tz")
-    data_dir=$(ask "Data directory (host path for ACME, DBs, logs)" "/opt/${stack_name}")
+    # Default `./data` keeps runtime state under the install dir but in
+    # a clearly-separated, gitignored subdirectory. Overriding to an
+    # absolute path is only needed if the operator wants state on a
+    # separate disk / volume / NFS share. Never suggest the install
+    # dir itself (would mix repo files with runtime state).
+    data_dir=$(ask "Data directory (relative to install dir, OR absolute path for separate disk)" "./data")
 
     set_env STACK_NAME      "$stack_name"
     set_env NETWORK_NAME    "$network_name"

@@ -168,7 +168,8 @@ examples in `.env.example`.
 - No host-wide ulimit / PAM changes.
 - No persistent kernel parameters (`/etc/sysctl.d/...`).
 - The only host filesystem the stack writes to is `${DATA_DIRECTORY}`
-  (default `/opt/edgeproxy`) which the operator explicitly chose.
+  (default `./data` -- relative to the install dir, gitignored, so
+  resolves to `/opt/edgeproxy/data/` after a default install).
 - Read-only mounts (`/proc`, `/sys`, `/var/lib/docker`,
   `/var/run/docker.sock`) are observation surfaces for node-exporter,
   cAdvisor and Promtail. The mode is `:ro` -- writes from the

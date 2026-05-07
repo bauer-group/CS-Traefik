@@ -114,23 +114,36 @@ After install, the layout is:
 │   ├── promtail/
 │   ├── alertmanager/
 │   └── certs/{static,letsencrypt}/       <- BYO certs + ACME storage
-
-/opt/edgeproxy/                           <- DATA_DIRECTORY (default)
-├── traefik/
-│   ├── letsencrypt/                      <- ACME state (chmod 600)
-│   └── logs/                             <- access.log + traefik.log
-├── grafana/                              <- SQLite + sessions (uid 472)
-├── prometheus/                           <- TSDB blocks (uid 65534)
-├── loki/                                 <- chunks + index (uid 10001)
-├── promtail/                             <- position file
-├── alertmanager/                         <- alert state
-└── backups/                              <- traefik.sh backup output
+│
+└── data/                                 <- DATA_DIRECTORY (default `./data`)
+                                             gitignored, never tracked
+    ├── traefik/
+    │   ├── letsencrypt/                  <- ACME state (chmod 600)
+    │   └── logs/                         <- access.log + traefik.log
+    ├── grafana/                          <- SQLite + sessions (uid 472)
+    ├── prometheus/                       <- TSDB blocks (uid 65534)
+    ├── loki/                             <- chunks + index (uid 10001)
+    ├── promtail/                         <- position file
+    ├── alertmanager/                     <- alert state
+    └── backups/                          <- traefik.sh backup output
 ```
 
-The repo and the data directory share the same `/opt/edgeproxy` root
-by default. To split them, set `DATA_DIRECTORY=/data/edgeproxy` in
-`.env` -- the repo stays at `/opt/edgeproxy`, runtime state moves to
-`/data/edgeproxy/`.
+Runtime state lives in a single `./data/` subdirectory of the install
+root by default. That keeps it close to the repo for easy operator
+mental mapping (everything is under `/opt/edgeproxy`) but cleanly
+separated from the git working tree (the whole `data/` directory is
+gitignored, so `git status` never shows TSDB / cert / log churn).
+
+To put state on a separate disk (e.g. an NVMe dedicated to the
+Prometheus TSDB), override the env var to an absolute path:
+
+```env
+DATA_DIRECTORY=/mnt/fastdisk/edgeproxy
+```
+
+The repo stays at `/opt/edgeproxy/`, runtime state moves to
+`/mnt/fastdisk/edgeproxy/`. Do NOT set `DATA_DIRECTORY` to the
+install dir itself -- that mixes repo files with runtime state.
 
 ## Post-install verification
 

@@ -144,7 +144,7 @@ based on the host header.
 sudo /opt/edgeproxy/traefik.sh logs traefik | grep -i acme
 
 # Inspect the issued cert
-sudo cat /opt/edgeproxy/traefik/letsencrypt/letsencrypt-dns.json | jq '.letsencrypt-dns.Certificates[]'
+sudo cat /opt/edgeproxy/data/traefik/letsencrypt/letsencrypt-dns.json | jq '.letsencrypt-dns.Certificates[]'
 
 # From the outside, check the cert is wildcard
 echo | openssl s_client -showcerts -servername documents.s3.bauer-group.com -connect documents.s3.bauer-group.com:443 2>&1 | grep -A1 "Subject Alternative Name"
@@ -227,7 +227,7 @@ up:
 sudo /opt/edgeproxy/traefik.sh stop
 
 # Remove the DNS-01 ACME storage file
-sudo rm /opt/edgeproxy/traefik/letsencrypt/letsencrypt-dns.json
+sudo rm /opt/edgeproxy/data/traefik/letsencrypt/letsencrypt-dns.json
 
 # Optionally clear Cloudflare credentials from .env
 # (won't break anything if they stay -- just unused)

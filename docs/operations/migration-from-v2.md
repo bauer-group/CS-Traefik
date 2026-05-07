@@ -137,8 +137,8 @@ If you can't easily get a new host:
 4. Configure `.env` to match.
 5. **Optional**: copy the legacy ACME storage:
    ```bash
-   sudo cp /path/to/legacy/data/acme.json /opt/edgeproxy/traefik/letsencrypt/letsencrypt.json
-   sudo chmod 600 /opt/edgeproxy/traefik/letsencrypt/letsencrypt.json
+   sudo cp /path/to/legacy/data/acme.json /opt/edgeproxy/data/traefik/letsencrypt/letsencrypt.json
+   sudo chmod 600 /opt/edgeproxy/data/traefik/letsencrypt/letsencrypt.json
    ```
    This avoids re-issuing certs on first start. The format is
    compatible (same Traefik ACME storage schema).

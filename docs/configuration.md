@@ -27,7 +27,7 @@ starting `.env`.
 | `STACK_NAME` | `edgeproxy` | Compose project name. Prefixes container/volume names. Change only if you run multiple Traefik stacks on the same host. |
 | `NETWORK_NAME` | `EDGEPROXY` | Public Docker network name. **Drop-in compat with the legacy v2 stack** — change at your own risk; existing app stacks reference this. |
 | `TIME_ZONE` | `Etc/UTC` | IANA timezone, propagated to every container's `TZ` env var. Affects log timestamps and cron schedules. |
-| `DATA_DIRECTORY` | `/opt/edgeproxy` | Host path for runtime state (ACME, Grafana DB, Prometheus TSDB, Loki chunks, logs, backups). Use a separate disk for log-heavy workloads. |
+| `DATA_DIRECTORY` | `./data` (relative to compose project root) | Host path for runtime state (ACME, Grafana DB, Prometheus TSDB, Loki chunks, logs, backups). With the default, state lives at `<install-dir>/data/...` -- gitignored, never pollutes the cloned repo. Override to an absolute path (e.g. `/mnt/fastdisk/edgeproxy`) to put state on a separate disk for log-heavy workloads. Do NOT set this to the install dir itself. |
 
 ## Compose profiles (feature toggles)
 

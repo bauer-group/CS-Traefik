@@ -99,9 +99,9 @@ The mounted directory should be writable by the Traefik process.
 .sh`, ownership might be off:
 
 ```bash
-sudo chown -R root:root /opt/edgeproxy/traefik/letsencrypt/
-sudo chmod 700 /opt/edgeproxy/traefik/letsencrypt/
-sudo chmod 600 /opt/edgeproxy/traefik/letsencrypt/*.json
+sudo chown -R root:root /opt/edgeproxy/data/traefik/letsencrypt/
+sudo chmod 700 /opt/edgeproxy/data/traefik/letsencrypt/
+sudo chmod 600 /opt/edgeproxy/data/traefik/letsencrypt/*.json
 ```
 
 Then `sudo ./traefik.sh restart`.
@@ -276,15 +276,15 @@ docker network inspect EDGEPROXY-INTERNAL -f '{{range .Containers}}{{.Name}}{{pr
 The bind mount target needs to be writable:
 
 ```bash
-ls -la /opt/edgeproxy/traefik/logs/
+ls -la /opt/edgeproxy/data/traefik/logs/
 # Should show traefik writable here
 ```
 
 If permissions are wrong, fix:
 
 ```bash
-sudo mkdir -p /opt/edgeproxy/traefik/logs
-sudo chmod 755 /opt/edgeproxy/traefik/logs
+sudo mkdir -p /opt/edgeproxy/data/traefik/logs
+sudo chmod 755 /opt/edgeproxy/data/traefik/logs
 sudo /opt/edgeproxy/traefik.sh restart
 ```
 
