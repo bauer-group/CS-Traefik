@@ -120,6 +120,106 @@ compose() {
 }
 
 # -----------------------------------------------------------------------------
+# Lifecycle summary helpers (information awareness after every action)
+# -----------------------------------------------------------------------------
+
+# get_env_value KEY -- read a key from .env, echo the value (no quotes, trim)
+get_env_value() {
+    [[ -f "$ENV_FILE" ]] || { echo ""; return; }
+    grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d'=' -f2- | sed 's/^"\(.*\)"$/\1/; s/^'\''\(.*\)'\''$/\1/' || echo ""
+}
+
+# resolve_data_dir -- expand ./data relative to PROJECT_ROOT
+resolve_data_dir() {
+    local d
+    d=$(get_env_value DATA_DIRECTORY)
+    d=${d:-./data}
+    [[ "$d" == ./* ]] && d="$PROJECT_ROOT/${d#./}"
+    echo "$d"
+}
+
+# Container summary used by lifecycle commands. Prints to stdout:
+#   * a short table of container name + status + health
+#   * total / healthy / unhealthy / starting counts
+print_container_state() {
+    local total healthy unhealthy starting other
+    if ! compose ps -q 2>/dev/null | grep -q .; then
+        echo "  No containers running."
+        return 1
+    fi
+
+    # Count by health (or running state when no healthcheck)
+    total=$(compose ps -q 2>/dev/null | wc -l | tr -d ' ')
+    healthy=$(compose ps --format '{{.Health}}' 2>/dev/null | grep -c '^healthy$' || true)
+    unhealthy=$(compose ps --format '{{.Health}}' 2>/dev/null | grep -c '^unhealthy$' || true)
+    starting=$(compose ps --format '{{.Health}}' 2>/dev/null | grep -c '^starting$' || true)
+    other=$((total - healthy - unhealthy - starting))
+
+    echo "  Containers: total=$total  healthy=$healthy  starting=$starting  unhealthy=$unhealthy  no-healthcheck=$other"
+    echo
+    compose ps --format 'table {{.Service}}\t{{.Status}}' 2>/dev/null | sed 's/^/    /'
+    return 0
+}
+
+# Print the standard "where to access / what to do next" block.
+# Tailored to whether the stack is currently running or stopped.
+print_access_info() {
+    local running="${1:-true}"   # true|false
+    local profiles api_port api_bind data_dir api_host
+
+    profiles=$(get_profiles)
+    api_port=$(get_env_value API_PORT); api_port=${api_port:-9090}
+    api_bind=$(get_env_value API_BIND); api_bind=${api_bind:-127.0.0.1}
+    api_host=$(get_env_value API_HOST)
+    data_dir=$(resolve_data_dir)
+
+    echo "  ${BOLD}Profiles active:${NC} ${profiles:-<core only>}"
+    echo
+
+    if [[ "$running" == true ]]; then
+        echo "  ${BOLD}Admin access:${NC}"
+        if [[ "$api_bind" == "0.0.0.0" || "$api_bind" == "::" ]]; then
+            echo "    LAN-accessible at:  http://<host-ip>:${api_port}/dashboard/"
+            echo "    Loopback (always):  http://127.0.0.1:${api_port}/dashboard/"
+        else
+            echo "    Localhost-only:     http://${api_bind}:${api_port}/dashboard/"
+            echo "    SSH-tunnel from your workstation:"
+            echo "      ssh -L ${api_port}:${api_bind}:${api_port} root@<this-host>"
+        fi
+        if [[ -n "$api_host" && "$api_host" != "__api_host_not_set__"* ]]; then
+            echo "    Public FQDN (mode 3): https://${api_host}/dashboard/"
+        fi
+        if [[ "$profiles" == *"monitoring"* ]]; then
+            echo
+            echo "    Monitoring UIs (same auth as dashboard):"
+            echo "      /grafana/        Grafana home"
+            echo "      /prometheus/     Prometheus query UI"
+            echo "      /alertmanager/   Alertmanager"
+        fi
+        echo
+    fi
+
+    echo "  ${BOLD}Key paths:${NC}"
+    echo "    Configuration:  $ENV_FILE  (chmod 600)"
+    echo "    Data directory: $data_dir/  (gitignored, runtime state)"
+    echo "    Compose root:   $PROJECT_ROOT/"
+    echo
+
+    echo "  ${BOLD}Useful commands:${NC}"
+    echo "    sudo $0 status            container state + resource usage"
+    echo "    sudo $0 logs [service]    tail logs (all or one service)"
+    if [[ "$running" == true ]]; then
+        echo "    sudo $0 restart           restart all running services"
+        echo "    sudo $0 stop              stop the stack (volumes preserved)"
+    else
+        echo "    sudo $0 start             bring the stack back up"
+    fi
+    echo "    sudo $0 backup            snapshot .env, config, ACME, DBs"
+    echo "    sudo $0 check-host-isolation  verify host hardening (read-only)"
+    echo
+}
+
+# -----------------------------------------------------------------------------
 # Pre-up host preparation (data dirs + permissions)
 # -----------------------------------------------------------------------------
 ensure_data_dirs() {
@@ -176,8 +276,10 @@ cmd_start() {
     echo
     print_success "Stack started."
     echo
-    compose ps
+    print_section "Summary"
+    print_container_state
     echo
+    print_access_info true
 }
 
 cmd_stop() {
@@ -194,7 +296,16 @@ cmd_stop() {
     compose down
 
     echo
-    print_success "Stack stopped (named volumes preserved)."
+    print_success "Stack stopped."
+    echo
+    print_section "Summary"
+    echo "  All containers stopped. Networks removed."
+    echo "  ${BOLD}Preserved:${NC}"
+    echo "    * Named volumes (none in this stack -- all bind-mounts)"
+    echo "    * Bind-mounted data directory (see below)"
+    echo "    * .env configuration"
+    echo
+    print_access_info false
 }
 
 cmd_restart() {
@@ -207,7 +318,11 @@ cmd_restart() {
 
     echo
     print_success "Stack restarted."
-    compose ps
+    echo
+    print_section "Summary"
+    print_container_state
+    echo
+    print_access_info true
 }
 
 cmd_status() {
@@ -254,6 +369,10 @@ cmd_update() {
     require_env
     check_docker
 
+    # Snapshot pre-update image IDs so we can show what actually changed.
+    local pre_state
+    pre_state=$(compose ps --format '{{.Service}}={{.Image}}' 2>/dev/null | sort)
+
     print_info "Pulling newer images ..."
     compose pull
 
@@ -263,9 +382,26 @@ cmd_update() {
     print_info "Pruning old image layers ..."
     docker image prune -f >/dev/null
 
+    # Diff pre/post image IDs to highlight what actually got newer.
+    local post_state
+    post_state=$(compose ps --format '{{.Service}}={{.Image}}' 2>/dev/null | sort)
+    local changed
+    changed=$(diff <(echo "$pre_state") <(echo "$post_state") 2>/dev/null | grep -E '^[<>]' || true)
+
     echo
     print_success "Images updated."
-    compose ps
+    echo
+    print_section "Summary"
+    if [[ -z "$changed" ]]; then
+        echo "  No image updates picked up (everything was already current)."
+    else
+        echo "  Image changes detected:"
+        echo "$changed" | sed 's|^<|    [pre]  |; s|^>|    [post] |'
+    fi
+    echo
+    print_container_state
+    echo
+    print_access_info true
 }
 
 cmd_deploy() {

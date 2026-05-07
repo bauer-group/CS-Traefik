@@ -316,7 +316,8 @@ clone_or_update_repo() {
         if [[ -d "$INSTALL_DIR" ]] && [[ -n "$(ls -A "$INSTALL_DIR" 2>/dev/null || true)" ]]; then
             print_warning "$INSTALL_DIR exists and is not empty (and not a git repo)."
             if [[ "$INTERACTIVE" == true ]]; then
-                read -rp "Move it aside and clone fresh? [y/N] " ans
+                local ans
+                tty_read "Move it aside and clone fresh? [y/N] " ans
                 if [[ ! "$ans" =~ ^[Yy]$ ]]; then
                     print_error "Aborted by user."
                     exit 1
@@ -355,6 +356,26 @@ re_exec_from_clone() {
 ENV_EXAMPLE="$PROJECT_ROOT/.env.example"
 ENV_FILE="$PROJECT_ROOT/.env"
 
+# tty_read -- like `read -rp PROMPT VARNAME`, but reads from /dev/tty when
+# stdin is not a TTY (the curl|bash case: stdin holds the script content,
+# so a plain `read` would consume script bytes as the answer). Falls back
+# to a clear error if neither stdin nor /dev/tty are usable for input.
+tty_read() {
+    local prompt="$1" varname="$2"
+    if [[ -t 0 ]]; then
+        # stdin is the user's terminal -- normal case (./install.sh upgrade)
+        read -rp "$prompt" "$varname"
+    elif [[ -r /dev/tty ]]; then
+        # stdin is the script body (curl|bash) -- read from the controlling tty
+        read -rp "$prompt" "$varname" </dev/tty
+    else
+        # Headless context (cron, ssh -T without -tt, docker exec without -i)
+        print_error "Interactive input required but no TTY available."
+        print_error "Run with --yes (install) / --auto (upgrade) for non-interactive mode."
+        exit 1
+    fi
+}
+
 ask() {
     # ask "Prompt text" "default-value"  -> echoes the user's answer
     local prompt="$1" default="${2:-}"
@@ -364,10 +385,10 @@ ask() {
     fi
     local response
     if [[ -n "$default" ]]; then
-        read -rp "$(echo -e "${BOLD}? ${prompt}${NC} [${YELLOW}${default}${NC}]: ")" response
+        tty_read "$(echo -e "${BOLD}? ${prompt}${NC} [${YELLOW}${default}${NC}]: ")" response
         echo "${response:-$default}"
     else
-        read -rp "$(echo -e "${BOLD}? ${prompt}${NC}: ")" response
+        tty_read "$(echo -e "${BOLD}? ${prompt}${NC}: ")" response
         echo "$response"
     fi
 }
@@ -383,7 +404,7 @@ ask_yes_no() {
         return
     fi
     local response
-    read -rp "$(echo -e "${BOLD}? ${prompt}${NC} [${YELLOW}${default_label}${NC}]: ")" response
+    tty_read "$(echo -e "${BOLD}? ${prompt}${NC} [${YELLOW}${default_label}${NC}]: ")" response
     response=${response:-$default}
     [[ "$response" =~ ^[Yy]$ ]] && echo "yes" || echo "no"
 }
