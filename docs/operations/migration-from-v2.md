@@ -149,6 +149,102 @@ If you can't easily get a new host:
 The brief downtime is from `legacy down` → `CS-Traefik up`. Plan a
 maintenance window of ~30 seconds.
 
+### Approach 3: Automated `install.sh upgrade` (recommended for batch rollout)
+
+For migrating many hosts at once (the BG case: hundreds of
+identically-configured `srv-containerhost*` boxes), the installer
+ships a dedicated `upgrade` subcommand that automates the whole
+flow with safety baked in.
+
+```bash
+# Interactive run (recommended for the first 1-2 hosts to verify):
+curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install.sh \
+  | sudo bash -s -- upgrade
+
+# Dry-run -- prints the plan without doing anything:
+curl -fsSL .../install.sh | sudo bash -s -- upgrade --dry-run
+
+# Fully automated (for batch rollout via Ansible / SSH-loops):
+curl -fsSL .../install.sh | sudo bash -s -- upgrade --auto
+```
+
+What `upgrade` does, in order:
+
+1. **Detect** the v2 stack at `/opt/edgeproxy` (the legacy default).
+   Refuses to run if the path is missing or already on v3.
+2. **Auto-discover running compose projects** via container labels.
+   v2 stacks were often started with custom `--project-name`
+   (per-host hostname pattern); the upgrade picks them up automatically
+   plus a fallback list of common names.
+3. **Parse the old `.env`** and pick out only the values that need to
+   migrate (see table below). Everything else stays at v3 defaults.
+4. **Print the plan** (skipped with `--auto`) and ask for confirmation.
+5. **Stop** every detected compose project (`docker compose down
+   --remove-orphans`). Volumes are PRESERVED -- nothing is deleted
+   that holds historical data.
+6. **Remove the legacy networks** (`EDGEPROXY`, `EDGEPROXY_INTERNAL`,
+   plus name variants). Networks are recreated by the new compose.
+7. **Atomic rename** `/opt/edgeproxy` -> `/opt/edgeproxy-v2-backup-<TS>`.
+   Same filesystem, instant, reversible. A failure at any later step
+   can be rolled back by renaming the dir back.
+8. **Clone v3** to `/opt/edgeproxy`.
+9. **Generate `.env`** from `.env.example` and overlay the migrated
+   values:
+
+   | Old key | Where it goes in v3 | Notes |
+   | --- | --- | --- |
+   | `API_USERS` | `API_USERS` | Verbatim (already bcrypt-escaped). |
+   | `API_WHITELIST` | `API_WHITELIST` | Verbatim (preserves your LAN CIDRs). |
+   | `GRAFANA_ADMIN_PASSWORD` | same | Verbatim. |
+   | `API_PORT` | same | Migrated only if non-default (v3 default is 9090). |
+   | `LETSENCRYPT_EMAIL` | same | Migrated only if non-default. |
+   | `API_HOST` | split: IPs -> `API_BIND`/`API_BIND_V6`=0.0.0.0/:: | v2's HostRegexp pattern is split: IP parts trigger all-interface bind (preserves v2 0.0.0.0 behaviour AND loopback access); hostname is logged but NOT migrated to v3 `API_HOST` (v3 API_HOST is for mode-3 public-FQDN-with-LE only -- internal hostnames don't qualify). |
+   | (none) | `COMPOSE_PROFILES=monitoring` | Upgrade default. |
+
+10. **Migrate ACME certs** by calling `traefik.sh migrate-acme` on
+    `<backup>/configuration/traefik/certificates/dynamic/letsencrypt.json`.
+    Target resolver is `letsencrypt-tls` (preserves v2's TLS-ALPN-01
+    challenge type, no rate-limit hit). Account block is preserved
+    so first renewal continues under the same Let's Encrypt account.
+11. **Start** the v3 stack via `traefik.sh start`.
+12. **Verify** Traefik becomes healthy (poll up to 120 s).
+13. **Print summary** with rollback instructions.
+
+Recovery: at any point before the data subdirs grow beyond what the
+TSDB stores in WAL, you can roll back by:
+
+```bash
+sudo /opt/edgeproxy/traefik.sh stop
+sudo rm -rf /opt/edgeproxy
+sudo mv /opt/edgeproxy-v2-backup-<TS> /opt/edgeproxy
+sudo cd /opt/edgeproxy && docker compose --project-name <project> up -d
+```
+
+After 30 days of confirmed v3 operation (cert renewals proven
+working), delete the backup:
+
+```bash
+sudo rm -rf /opt/edgeproxy-v2-backup-<TS>
+```
+
+**Batch rollout pattern** (Ansible / SSH-loop):
+
+```bash
+# bg-upgrade-all.sh -- run from a controller host
+for host in $(cat hostlist.txt); do
+    ssh root@"$host" \
+        'curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install.sh | bash -s -- upgrade --auto' \
+        > "logs/${host}.log" 2>&1 &
+    # Throttle: 5 concurrent
+    [[ $(jobs -r | wc -l) -ge 5 ]] && wait -n
+done
+wait
+```
+
+`--auto` skips the confirmation prompt; everything else is identical
+to the interactive flow. The per-host log captures the full output
+for post-rollout inspection.
+
 ## Verifying drop-in compatibility for an app stack
 
 Before doing any actual migration, verify against a sample app:

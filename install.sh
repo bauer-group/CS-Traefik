@@ -77,6 +77,10 @@ START_STACK=true
 RECONFIGURE=false
 INSTALL_DIR="$INSTALL_DIR_DEFAULT"
 BRANCH="$BRANCH_DEFAULT"
+UPGRADE_MODE=false
+AUTO_UPGRADE=false
+DRY_RUN=false
+UPGRADE_SOURCE=""
 
 usage() {
     cat <<EOF
@@ -84,7 +88,15 @@ CS-Traefik - Unified Installer & Setup Wizard
 
 Usage:
   curl -fsSL <repo>/install.sh | sudo bash [-- options]   # remote bootstrap
-  sudo ./install.sh [options]                             # local re-configure
+  sudo ./install.sh [command] [options]                   # local re-configure
+
+Commands:
+  (none / install)        Default. Fresh install (clone + wizard + start).
+  upgrade                 Migrate a legacy v2 stack at /opt/edgeproxy to v3.
+                          Stops + backs up the v2 install (rename, never delete),
+                          migrates relevant .env values, imports ACME certs,
+                          installs v3, starts it. Volumes are preserved; old
+                          networks are removed.
 
 Options:
   -y, --yes               Non-interactive: use defaults, generate random secrets,
@@ -98,6 +110,13 @@ Options:
                           remote-bootstrap mode only).
   -b, --branch BRANCH     Git branch to clone (default: main; remote mode).
   -d, --install-dir DIR   Install path (default: /opt/edgeproxy; remote mode).
+
+Upgrade-only options:
+      --auto              Skip the confirmation prompt (for automated batch
+                          rollout to many hosts). Implies --yes.
+      --dry-run           Show the upgrade plan without executing it.
+      --source DIR        Path of the v2 stack to upgrade (default: same
+                          as --install-dir, since v2 also defaulted there).
   -h, --help              Show this help.
 
 Environment overrides:
@@ -117,8 +136,30 @@ Examples:
 
   # Edit .env without starting the stack
   sudo ./install.sh --setup-only
+
+  # Upgrade legacy v2 stack at /opt/edgeproxy (interactive)
+  sudo ./install.sh upgrade
+
+  # Upgrade with no prompts (for batch rollout)
+  sudo ./install.sh upgrade --auto
+
+  # Show what an upgrade would do without executing
+  sudo ./install.sh upgrade --dry-run
+
+  # Remote-bootstrap upgrade (curl|bash)
+  curl -fsSL <repo>/install.sh | sudo bash -s -- upgrade --auto
 EOF
 }
+
+# Optional positional command before flags (e.g. "install.sh upgrade --auto").
+if [[ $# -gt 0 && "$1" != -* ]]; then
+    case "$1" in
+        install)             UPGRADE_MODE=false; shift ;;
+        upgrade)             UPGRADE_MODE=true;  shift ;;
+        help)                usage; exit 0 ;;
+        *)                   print_error "Unknown command: $1"; usage; exit 1 ;;
+    esac
+fi
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -129,6 +170,9 @@ while [[ $# -gt 0 ]]; do
         --no-wizard)         RUN_WIZARD=false; START_STACK=false; shift ;;
         --branch|-b)         BRANCH="$2";       shift 2 ;;
         --install-dir|-d)    INSTALL_DIR="$2";  shift 2 ;;
+        --auto)              AUTO_UPGRADE=true; INTERACTIVE=false; shift ;;
+        --dry-run)           DRY_RUN=true; shift ;;
+        --source)            UPGRADE_SOURCE="$2"; shift 2 ;;
         --help|-h)           usage; exit 0 ;;
         *)                   print_error "Unknown option: $1"; usage; exit 1 ;;
     esac
@@ -705,9 +749,462 @@ print_summary() {
 }
 
 # =============================================================================
+# Upgrade flow: legacy v2 stack -> CS-Traefik v3
+# =============================================================================
+# Designed for batch rollout to many hosts. Phases are atomic and reversible
+# up to the rename step:
+#
+#   1. Detect    (read-only)
+#   2. Confirm   (skipped with --auto)
+#   3. Stop      (compose down -- volumes preserved, networks removed)
+#   4. Backup    (mv old dir -> <old>-v2-backup-<TS>; instant + atomic)
+#   5. Install   (clone v3 to old path)
+#   6. Migrate   (read old .env values -> write new .env)
+#   7. Migrate   (ACME certs via traefik.sh migrate-acme)
+#   8. Start     (traefik.sh start with COMPOSE_PROFILES=monitoring)
+#   9. Verify    (Traefik healthy)
+# =============================================================================
+
+# State carried between phases (set by detect_v2_stack / parse_api_host)
+V2_SOURCE_DIR=""
+V2_BACKUP_DIR=""
+V2_DETECTED_PROJECTS=""
+V2_API_BIND=""
+V2_API_BIND_V6=""
+V2_API_HOSTNAME=""
+declare -A V2_OLD_ENV   # parsed key=value pairs from old .env
+
+upgrade_run_or_dry() {
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "    [dry-run] $*"
+    else
+        eval "$@"
+    fi
+}
+
+# Phase 1 -- Detection -------------------------------------------------------
+detect_v2_stack() {
+    local dir="$1"
+    print_section "Phase 1: Detect v2 stack at $dir"
+
+    if [[ ! -f "$dir/docker-compose.yml" ]]; then
+        print_error "No docker-compose.yml at $dir -- nothing to upgrade."
+        exit 2
+    fi
+
+    # Quick sanity: does the compose file mention traefik:v2.* ?
+    if grep -qE "image:[[:space:]]*traefik:v2" "$dir/docker-compose.yml"; then
+        print_success "v2 Traefik stack detected at $dir"
+    elif grep -qE "image:[[:space:]]*traefik:v3" "$dir/docker-compose.yml"; then
+        print_warning "Compose file at $dir already references traefik:v3."
+        print_warning "Looks like the upgrade may have already happened. Aborting."
+        exit 0
+    else
+        print_warning "Compose file at $dir does not reference traefik:v2 or v3 explicitly."
+        print_warning "Image references found:"
+        grep -E "image:" "$dir/docker-compose.yml" | head -3 | sed 's/^/    /'
+        if [[ "$AUTO_UPGRADE" != true ]]; then
+            ask_yes_no "Continue anyway?" "n" || exit 0
+        fi
+    fi
+
+    # Parse old .env (if exists)
+    if [[ -f "$dir/.env" ]]; then
+        # Read each KEY=VALUE pair (unquote, ignore comments + blanks)
+        while IFS='=' read -r key val; do
+            [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+            # Strip leading/trailing whitespace + quotes from value
+            val="${val%\"}"; val="${val#\"}"
+            val="${val%\'}"; val="${val#\'}"
+            V2_OLD_ENV["$key"]="$val"
+        done < <(grep -E '^[A-Z_]+=' "$dir/.env" 2>/dev/null || true)
+        print_info "Parsed $(echo "${!V2_OLD_ENV[@]}" | wc -w) variables from old .env"
+    else
+        print_warning "No .env at $dir -- new install will use v3 defaults."
+    fi
+}
+
+detect_running_projects() {
+    print_section "Phase 1b: Auto-detect running v2 compose projects"
+    # Find compose projects that have a container with image traefik:v2.*
+    local projects
+    projects=$(docker ps -a --format '{{.Image}}|{{.Label "com.docker.compose.project"}}' 2>/dev/null \
+              | awk -F'|' '$1 ~ /^traefik:v2/ && $2 != "" {print $2}' | sort -u || true)
+
+    if [[ -n "$projects" ]]; then
+        V2_DETECTED_PROJECTS="$projects"
+        print_info "Compose projects with v2 Traefik containers:"
+        echo "$projects" | sed 's/^/    /'
+    else
+        print_info "No running v2 stack detected (already stopped, or never running)."
+    fi
+}
+
+parse_api_host() {
+    # Pipe-separated list of IPv4 / IPv6 / hostnames -> separate buckets.
+    # Example input:  "192.168.2.96|srv-host.dmz.example|2001:db8::1"
+    local input="$1"
+    V2_API_BIND=""; V2_API_BIND_V6=""; V2_API_HOSTNAME=""
+    [[ -z "$input" ]] && return
+
+    local IFS_BAK="$IFS"
+    IFS='|'
+    set -f
+    local parts=( $input )
+    set +f
+    IFS="$IFS_BAK"
+
+    for raw in "${parts[@]}"; do
+        local part="${raw// /}"
+        [[ -z "$part" ]] && continue
+        if [[ "$part" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            [[ -z "$V2_API_BIND" ]] && V2_API_BIND="$part"
+        elif [[ "$part" =~ : ]] && [[ ! "$part" =~ \. ]]; then
+            [[ -z "$V2_API_BIND_V6" ]] && V2_API_BIND_V6="$part"
+        else
+            [[ -z "$V2_API_HOSTNAME" ]] && V2_API_HOSTNAME="$part"
+        fi
+    done
+}
+
+# Phase 2 -- Confirm ---------------------------------------------------------
+print_upgrade_plan() {
+    local source="$1" backup="$2"
+    print_section "Phase 2: Upgrade plan"
+
+    cat <<EOF
+The following will happen:
+
+  Source v2 stack         : $source
+  Backup destination      : $backup
+                            (atomic rename; volumes preserved separately)
+  Target v3 install       : $INSTALL_DIR
+  Compose profiles        : monitoring (upgrade default)
+
+Detected v2 compose projects to stop:
+$(if [[ -n "$V2_DETECTED_PROJECTS" ]]; then echo "$V2_DETECTED_PROJECTS" | sed 's/^/      /'; else echo "      (none running)"; fi)
+
+Old networks to remove (volumes are preserved):
+      EDGEPROXY, EDGEPROXY_INTERNAL, plus any matching by name
+
+Settings migrated from old .env:
+      API_USERS              -> kept verbatim (already bcrypt-escaped)
+      API_WHITELIST          -> kept verbatim (preserves your LAN CIDRs)
+      GRAFANA_ADMIN_PASSWORD -> kept verbatim
+      API_PORT               -> only if non-default (default v3: 9090)
+      LETSENCRYPT_EMAIL      -> kept verbatim
+      API_HOST               -> SPLIT:
+                                   IPv4 part   -> API_BIND  (binds 0.0.0.0
+                                                  to preserve v2 all-interface
+                                                  + loopback access)
+                                   IPv6 part   -> API_BIND_V6 (likewise ::)
+                                   hostname    -> noted but NOT migrated
+                                                  (v3 API_HOST is for mode-3
+                                                  public-FQDN-with-LE only)
+      DATA_DIRECTORY         -> ./data (v3 default)
+      COMPOSE_PROFILES       -> monitoring
+
+ACME certificates:
+      Source : <backup>/configuration/traefik/certificates/dynamic/letsencrypt.json
+      Target : <install>/data/traefik/letsencrypt/letsencrypt-tls.json
+                              (matches v2's TLS-ALPN-01 challenge type)
+
+Volumes:
+      Existing Docker named volumes are NOT touched.
+
+Recovery:
+      If anything goes wrong, the v2 stack is at $backup --
+      manually rename it back to restore.
+
+EOF
+}
+
+# Phase 3 -- Stop ------------------------------------------------------------
+stop_v2_stack() {
+    local dir="$1"
+    print_section "Phase 3: Stop v2 stack"
+
+    # Try detected projects first
+    if [[ -n "$V2_DETECTED_PROJECTS" ]]; then
+        while IFS= read -r project; do
+            print_info "compose down (project=$project)"
+            upgrade_run_or_dry "docker compose -f '$dir/docker-compose.yml' --project-name '$project' down --remove-orphans 2>&1 || true"
+        done <<< "$V2_DETECTED_PROJECTS"
+    fi
+
+    # Belt-and-suspenders: try common project names too. Errors ignored
+    # (project may not exist).
+    local stack_name="${V2_OLD_ENV[STACK_NAME]:-edgeproxy}"
+    local fallback_names=( "$stack_name" "$(echo "$stack_name" | tr '[:upper:]' '[:lower:]')" "edgeproxy" "$(basename "$dir")" "$(hostname)" "default" )
+    # Dedup
+    local seen=" "
+    for name in "${fallback_names[@]}"; do
+        [[ -z "$name" || "$seen" == *" $name "* ]] && continue
+        seen="$seen$name "
+        upgrade_run_or_dry "docker compose -f '$dir/docker-compose.yml' --project-name '$name' down --remove-orphans 2>/dev/null || true"
+    done
+
+    print_success "v2 stack stopped (or was already)."
+}
+
+remove_v2_networks() {
+    print_section "Phase 3b: Remove legacy networks (volumes preserved)"
+    local nets=( "${V2_OLD_ENV[NETWORK_NAME]:-EDGEPROXY}" "${V2_OLD_ENV[NETWORK_NAME]:-EDGEPROXY}_INTERNAL" "EDGEPROXY" "EDGEPROXY_INTERNAL" "edgeproxy" "edgeproxy_internal" )
+    local seen=" "
+    for net in "${nets[@]}"; do
+        [[ -z "$net" || "$seen" == *" $net "* ]] && continue
+        seen="$seen$net "
+        if docker network inspect "$net" >/dev/null 2>&1; then
+            print_info "docker network rm $net"
+            upgrade_run_or_dry "docker network rm '$net' 2>/dev/null || true"
+        fi
+    done
+    print_success "Legacy networks removed (where present)."
+}
+
+# Phase 4 -- Backup ----------------------------------------------------------
+backup_v2_dir() {
+    local source="$1" backup="$2"
+    print_section "Phase 4: Atomic rename to backup"
+    if [[ -d "$source" ]]; then
+        upgrade_run_or_dry "mv '$source' '$backup'"
+        print_success "$source -> $backup"
+    fi
+}
+
+# Phase 6 -- Migrate settings ------------------------------------------------
+generate_env_with_migration() {
+    local backup_dir="$1"
+    local new_env="$INSTALL_DIR/.env"
+    local example="$INSTALL_DIR/.env.example"
+    print_section "Phase 6: Migrate .env settings"
+
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "    [dry-run] would copy .env.example -> .env and merge old values"
+        return 0
+    fi
+
+    cp "$example" "$new_env"
+
+    # ---- API_USERS (bcrypt hash, contains $$ -- needs careful escaping) ----
+    if [[ -n "${V2_OLD_ENV[API_USERS]:-}" ]]; then
+        # The value is already $$ -escaped for compose, so we just need to
+        # write it verbatim. Use Python to avoid sed quoting hell with $$.
+        local py_cmd=""
+        for c in python3 python; do
+            command -v "$c" >/dev/null 2>&1 && { py_cmd="$c"; break; }
+        done
+        if [[ -z "$py_cmd" ]]; then
+            print_error "Python 3 required for migrating API_USERS (bcrypt hash with \$\$)."
+            return 1
+        fi
+        "$py_cmd" - "$new_env" "${V2_OLD_ENV[API_USERS]}" <<'PYEOF'
+import sys, re
+path, val = sys.argv[1], sys.argv[2]
+with open(path) as f: lines = f.read().splitlines()
+out = [f'API_USERS={val}' if re.match(r'^API_USERS=', ln) else ln for ln in lines]
+with open(path, 'w') as f: f.write('\n'.join(out) + '\n')
+PYEOF
+        print_info "API_USERS migrated (bcrypt hash preserved)"
+    fi
+
+    # ---- API_WHITELIST -----------------------------------------------------
+    if [[ -n "${V2_OLD_ENV[API_WHITELIST]:-}" ]]; then
+        sed -i "s|^API_WHITELIST=.*|API_WHITELIST=${V2_OLD_ENV[API_WHITELIST]}|" "$new_env"
+        print_info "API_WHITELIST migrated: ${V2_OLD_ENV[API_WHITELIST]}"
+    fi
+
+    # ---- API_PORT (only if non-standard) ----------------------------------
+    if [[ -n "${V2_OLD_ENV[API_PORT]:-}" && "${V2_OLD_ENV[API_PORT]}" != "9090" ]]; then
+        # Uncomment + set
+        sed -i "s|^# API_PORT=.*|API_PORT=${V2_OLD_ENV[API_PORT]}|; s|^API_PORT=.*|API_PORT=${V2_OLD_ENV[API_PORT]}|" "$new_env"
+        print_info "API_PORT migrated: ${V2_OLD_ENV[API_PORT]} (non-default)"
+    fi
+
+    # ---- API_HOST -> API_BIND / API_BIND_V6 -------------------------------
+    if [[ -n "${V2_OLD_ENV[API_HOST]:-}" ]]; then
+        parse_api_host "${V2_OLD_ENV[API_HOST]}"
+        if [[ -n "$V2_API_BIND" || -n "$V2_API_BIND_V6" ]]; then
+            # v2 was effectively all-interfaces (port-mapping was 0.0.0.0:port).
+            # Preserve same behaviour + always-loopback by binding 0.0.0.0 / ::
+            sed -i 's|^# API_BIND=.*|API_BIND=0.0.0.0|; s|^API_BIND=.*|API_BIND=0.0.0.0|' "$new_env"
+            sed -i 's|^# API_BIND_V6=.*|API_BIND_V6=::|; s|^API_BIND_V6=.*|API_BIND_V6=::|' "$new_env"
+            print_info "API_BIND set to 0.0.0.0 / :: (preserves v2 all-interfaces + loopback)"
+            [[ -n "$V2_API_BIND" ]]    && print_info "  detected v4 IP from old API_HOST: $V2_API_BIND"
+            [[ -n "$V2_API_BIND_V6" ]] && print_info "  detected v6 IP from old API_HOST: $V2_API_BIND_V6"
+            [[ -n "$V2_API_HOSTNAME" ]] && print_warning "  hostname '$V2_API_HOSTNAME' was in old API_HOST -- NOT migrated to v3 API_HOST (mode-3 needs a real public FQDN with LE-issuable cert)"
+        fi
+    fi
+
+    # ---- GRAFANA_ADMIN_PASSWORD -------------------------------------------
+    if [[ -n "${V2_OLD_ENV[GRAFANA_ADMIN_PASSWORD]:-}" ]]; then
+        local pwd="${V2_OLD_ENV[GRAFANA_ADMIN_PASSWORD]}"
+        # Strip surrounding quotes if any
+        pwd="${pwd#\"}"; pwd="${pwd%\"}"; pwd="${pwd#\'}"; pwd="${pwd%\'}"
+        sed -i "s|^# GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=${pwd}|; s|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=${pwd}|" "$new_env"
+        print_info "GRAFANA_ADMIN_PASSWORD migrated"
+    fi
+
+    # ---- LETSENCRYPT_EMAIL -------------------------------------------------
+    if [[ -n "${V2_OLD_ENV[LETSENCRYPT_EMAIL]:-}" && "${V2_OLD_ENV[LETSENCRYPT_EMAIL]}" != "info@bauer-group.com" ]]; then
+        sed -i "s|^# LETSENCRYPT_EMAIL=.*|LETSENCRYPT_EMAIL=${V2_OLD_ENV[LETSENCRYPT_EMAIL]}|; s|^LETSENCRYPT_EMAIL=.*|LETSENCRYPT_EMAIL=${V2_OLD_ENV[LETSENCRYPT_EMAIL]}|" "$new_env"
+        print_info "LETSENCRYPT_EMAIL migrated: ${V2_OLD_ENV[LETSENCRYPT_EMAIL]}"
+    fi
+
+    # ---- COMPOSE_PROFILES (upgrade default = monitoring) ------------------
+    sed -i 's|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=monitoring|' "$new_env"
+    print_info "COMPOSE_PROFILES set to: monitoring (upgrade default)"
+
+    chmod 600 "$new_env"
+    print_success "Migrated .env written: $new_env"
+}
+
+# Phase 7 -- Migrate ACME ----------------------------------------------------
+migrate_acme_from_backup() {
+    local backup_dir="$1"
+    local source_acme="$backup_dir/configuration/traefik/certificates/dynamic/letsencrypt.json"
+    print_section "Phase 7: Migrate ACME certificates"
+
+    if [[ ! -f "$source_acme" ]]; then
+        print_warning "No ACME storage at $source_acme."
+        print_warning "Skipping cert migration -- new stack will issue fresh certs"
+        print_warning "on first request (potentially burning Let's Encrypt rate-limit budget)."
+        return 0
+    fi
+
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "    [dry-run] traefik.sh migrate-acme --source '$source_acme'"
+        return 0
+    fi
+
+    cd "$INSTALL_DIR"
+    if ! bash ./traefik.sh migrate-acme --source "$source_acme" 2>&1; then
+        print_warning "ACME migration command exited non-zero."
+        print_warning "Check the message above and run manually if needed:"
+        print_warning "  sudo $INSTALL_DIR/traefik.sh migrate-acme --source '$source_acme'"
+    fi
+}
+
+# Phase 8/9 -- Start + verify ------------------------------------------------
+verify_upgrade() {
+    print_section "Phase 9: Verify Traefik healthy"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "    [dry-run] would wait for Traefik healthcheck"
+        return 0
+    fi
+    local stack_name max_wait elapsed
+    stack_name=$(grep -E '^STACK_NAME=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2- || echo "edgeproxy")
+    max_wait=120
+    elapsed=0
+    while (( elapsed < max_wait )); do
+        local state
+        state=$(docker inspect -f '{{.State.Health.Status}}' "${stack_name}-traefik" 2>/dev/null || echo "missing")
+        case "$state" in
+            healthy)  print_success "Traefik healthy after ${elapsed}s."; return 0 ;;
+            unhealthy) print_error "Traefik reports unhealthy. Check: docker logs ${stack_name}-traefik"; return 1 ;;
+            missing)  print_warning "Container ${stack_name}-traefik not running yet..." ;;
+        esac
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    print_warning "Traefik did not reach healthy state in ${max_wait}s."
+    print_warning "Check: docker compose -f $INSTALL_DIR/docker-compose.yml logs traefik"
+    return 1
+}
+
+print_upgrade_summary() {
+    local backup_dir="$1"
+    print_section "Upgrade complete"
+    cat <<EOF
+
+  Backup of old v2 stack: $backup_dir
+                          (rename it back to $V2_SOURCE_DIR if you need to roll back)
+  New v3 install:         $INSTALL_DIR
+  Profiles active:        monitoring
+
+Next steps:
+  1. Verify routing -- hit each migrated host:
+       curl -vI https://your-host/
+  2. Watch ACME renewal logs over the next few days:
+       sudo $INSTALL_DIR/traefik.sh logs traefik | grep -i acme
+  3. Once you have confirmed the v3 stack is healthy and certs renew
+     correctly (typically 30 days before each cert's notAfter), you
+     may delete the backup:
+       sudo rm -rf $backup_dir
+
+EOF
+}
+
+# Top-level orchestrator -----------------------------------------------------
+upgrade_from_v2() {
+    print_banner
+    require_root
+    check_os
+    ensure_basic_tools
+    ensure_docker
+
+    local source="${UPGRADE_SOURCE:-$INSTALL_DIR}"
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    V2_SOURCE_DIR="$source"
+    V2_BACKUP_DIR="${source}-v2-backup-${timestamp}"
+
+    detect_v2_stack "$source"
+    detect_running_projects
+
+    print_upgrade_plan "$source" "$V2_BACKUP_DIR"
+
+    if [[ "$AUTO_UPGRADE" != true && "$DRY_RUN" != true ]]; then
+        if ! ask_yes_no "Proceed with upgrade?" "y"; then
+            print_info "Aborted."
+            exit 0
+        fi
+    fi
+
+    if [[ "$DRY_RUN" == true ]]; then
+        print_info "DRY-RUN: showing planned operations only."
+    fi
+
+    stop_v2_stack "$source"
+    remove_v2_networks
+    backup_v2_dir "$source" "$V2_BACKUP_DIR"
+
+    if [[ "$DRY_RUN" != true ]]; then
+        # Phase 5: install v3 (clones if not already at INSTALL_DIR; if SCRIPT_DIR
+        # is the freshly-bootstrapped /tmp install.sh, this is the right call).
+        clone_or_update_repo
+    fi
+
+    generate_env_with_migration "$V2_BACKUP_DIR"
+    migrate_acme_from_backup "$V2_BACKUP_DIR"
+
+    if [[ "$DRY_RUN" == true ]]; then
+        print_section "Dry-run complete"
+        print_info "No changes made. Re-run without --dry-run to execute."
+        return 0
+    fi
+
+    print_section "Phase 8: Start new stack"
+    cd "$INSTALL_DIR"
+    bash ./traefik.sh start || {
+        print_error "Stack start failed -- inspect: docker compose logs"
+        exit 1
+    }
+
+    verify_upgrade || true
+    print_upgrade_summary "$V2_BACKUP_DIR"
+}
+
+# =============================================================================
 # Main
 # =============================================================================
 main() {
+    # Upgrade subcommand short-circuits the normal install flow.
+    if [[ "$UPGRADE_MODE" == true ]]; then
+        upgrade_from_v2
+        exit 0
+    fi
+
     # Skip the banner/prereq run on the re-exec leg (already done in the
     # bootstrap pass). We pass the marker via the env so it survives exec.
     if [[ -z "${CS_TRAEFIK_REEXEC:-}" ]]; then
