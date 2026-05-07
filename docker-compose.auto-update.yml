@@ -44,7 +44,15 @@ services:
       WATCHTOWER_CLEANUP: "true"
       WATCHTOWER_INCLUDE_STOPPED: "false"
       WATCHTOWER_LABEL_ENABLE: "true"
-      WATCHTOWER_ROLLING_RESTART: "true"
+      # WATCHTOWER_ROLLING_RESTART is intentionally NOT set. The nickfedor
+      # fork's strict validator refuses rolling restart when ANY labeled
+      # container has a depends_on chain (promtail->loki,
+      # grafana->prometheus,loki) -- which is exactly our monitoring
+      # stack. With WATCHTOWER_ROLLING_RESTART=true the container exits
+      # non-zero on every wakeup -> infinite restart loop under
+      # `restart: unless-stopped`. Default mode (stop -> pull -> recreate
+      # in dep order) is fine for the once-a-week 03:00 Saturday cron --
+      # ~5s downtime, invisible at that hour.
       WATCHTOWER_TIMEOUT: ${WATCHTOWER_TIMEOUT:-60s}
       WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 3 * * 6}
       WATCHTOWER_NO_STARTUP_MESSAGE: "false"
