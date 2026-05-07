@@ -1,3 +1,9 @@
+## [0.8.1](https://github.com/bauer-group/CS-Traefik/compare/v0.8.0...v0.8.1) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **layout:** default DATA_DIRECTORY to ./data, never the install dir itself ([9b9e357](https://github.com/bauer-group/CS-Traefik/commit/9b9e35792899f27861a44c0894f3940d70274d5c))
+
 ## [0.8.0](https://github.com/bauer-group/CS-Traefik/compare/v0.7.0...v0.8.0) (2026-05-07)
 
 ### 🚀 Features
