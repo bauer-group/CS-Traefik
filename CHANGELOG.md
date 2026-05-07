@@ -1,3 +1,9 @@
+## [0.9.9](https://github.com/bauer-group/CS-Traefik/compare/v0.9.8...v0.9.9) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **watchtower:** comment out WATCHTOWER_ROLLING_RESTART to prevent unintended behavior ([9843525](https://github.com/bauer-group/CS-Traefik/commit/9843525bcd239475f424627a0a68470f9263ee76))
+
 ## [0.9.8](https://github.com/bauer-group/CS-Traefik/compare/v0.9.7...v0.9.8) (2026-05-07)
 
 ### 🐛 Bug Fixes
