@@ -1,3 +1,9 @@
+## [0.9.0](https://github.com/bauer-group/CS-Traefik/compare/v0.8.1...v0.9.0) (2026-05-07)
+
+### 🚀 Features
+
+* **installer:** added `upgrade` subcommand for batch v2->v3 migration ([a2150b5](https://github.com/bauer-group/CS-Traefik/commit/a2150b5b46eab06401ee61565a1340ec37b64fae))
+
 ## [0.8.1](https://github.com/bauer-group/CS-Traefik/compare/v0.8.0...v0.8.1) (2026-05-07)
 
 ### 🐛 Bug Fixes
