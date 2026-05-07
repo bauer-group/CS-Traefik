@@ -2,6 +2,12 @@
   "description": "TLS certificate inventory + expiry timeline + ACME pipeline health. Operator's view for renewal planning and migration validation.",
   "editable": true,
   "graphTooltip": 1,
+  "annotations": {
+    "list": [
+      { "builtIn": 1, "datasource": { "type": "grafana", "uid": "-- Grafana --" }, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard" },
+      { "datasource": { "type": "prometheus", "uid": "prometheus" }, "enable": true, "iconColor": "orange", "name": "Cert Expiry Alerts", "expr": "ALERTS{alertstate=\"firing\",alertname=~\".*[Cc]ert.*|.*Expir.*\"}", "step": "30s", "titleFormat": "{{ alertname }}", "tagKeys": "severity,cn" }
+    ]
+  },
   "panels": [
     {
       "collapsed": false,

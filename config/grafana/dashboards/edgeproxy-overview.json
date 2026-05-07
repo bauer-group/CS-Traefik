@@ -9,6 +9,16 @@
         "iconColor": "rgba(0, 211, 255, 1)",
         "name": "Annotations & Alerts",
         "type": "dashboard"
+      },
+      {
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "red",
+        "name": "Firing Alerts",
+        "expr": "ALERTS{alertstate=\"firing\"}",
+        "step": "30s",
+        "titleFormat": "{{ alertname }}",
+        "tagKeys": "severity,name,container,service"
       }
     ]
   },
@@ -65,6 +75,7 @@
         }
       ],
       "title": "Traefik Up",
+      "links": [ { "title": "Open Self-Monitoring dashboard", "url": "/grafana/d/edgeproxy-self-monitoring" } ],
       "type": "stat"
     },
     {
@@ -105,6 +116,7 @@
         }
       ],
       "title": "Total Request Rate",
+      "links": [ { "title": "Open HTTP Traffic dashboard", "url": "/grafana/d/edgeproxy-http-traffic" } ],
       "type": "stat"
     },
     {
@@ -145,6 +157,7 @@
         }
       ],
       "title": "5xx Error Ratio",
+      "links": [ { "title": "Open Backends dashboard", "url": "/grafana/d/edgeproxy-backends" } ],
       "type": "stat"
     },
     {
@@ -185,6 +198,7 @@
         }
       ],
       "title": "Request Latency p95",
+      "links": [ { "title": "Open SLI/SLO dashboard", "url": "/grafana/d/edgeproxy-slo" } ],
       "type": "stat"
     },
     {
@@ -286,7 +300,15 @@
             "pointSize": 5,
             "showPoints": "never",
             "spanNulls": true,
-            "thresholdsStyle": { "mode": "off" }
+            "thresholdsStyle": { "mode": "line+area" }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "transparent", "value": null },
+              { "color": "yellow",      "value": 0.4 },
+              { "color": "red",         "value": 0.5 }
+            ]
           },
           "unit": "s"
         },

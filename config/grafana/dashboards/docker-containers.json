@@ -2,6 +2,12 @@
   "description": "Per-container CPU / memory / I/O metrics from cAdvisor.",
   "editable": true,
   "graphTooltip": 1,
+  "annotations": {
+    "list": [
+      { "builtIn": 1, "datasource": { "type": "grafana", "uid": "-- Grafana --" }, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard" },
+      { "datasource": { "type": "prometheus", "uid": "prometheus" }, "enable": true, "iconColor": "red", "name": "Firing Alerts", "expr": "ALERTS{alertstate=\"firing\"}", "step": "30s", "titleFormat": "{{ alertname }}", "tagKeys": "severity,name,container,service" }
+    ]
+  },
   "panels": [
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },

@@ -24,7 +24,7 @@
       "id": 1,
       "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total[5m]))", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total{service=~\"$service\"}[5m]))", "refId": "A" }
       ],
       "title": "Total Service Req/s",
       "type": "stat"
@@ -42,7 +42,7 @@
       "id": 2,
       "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total{code=~\"4..\"}[5m])) / clamp_min(sum(rate(traefik_service_requests_total[5m])), 0.001)", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total{service=~\"$service\",code=~\"4..\"}[5m])) / clamp_min(sum(rate(traefik_service_requests_total{service=~\"$service\"}[5m])), 0.001)", "refId": "A" }
       ],
       "title": "4xx Ratio",
       "type": "stat"
@@ -60,7 +60,7 @@
       "id": 3,
       "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total{code=~\"5..\"}[5m])) / clamp_min(sum(rate(traefik_service_requests_total[5m])), 0.001)", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total{service=~\"$service\",code=~\"5..\"}[5m])) / clamp_min(sum(rate(traefik_service_requests_total{service=~\"$service\"}[5m])), 0.001)", "refId": "A" }
       ],
       "title": "5xx Ratio",
       "type": "stat"
@@ -78,7 +78,7 @@
       "id": 4,
       "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, sum(rate(traefik_service_request_duration_seconds_bucket[5m])) by (le))", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.99, sum(rate(traefik_service_request_duration_seconds_bucket{service=~\"$service\"}[5m])) by (le))", "refId": "A" }
       ],
       "title": "p99 Latency",
       "type": "stat"
@@ -107,7 +107,7 @@
       "id": 5,
       "options": { "showHeader": true, "footer": { "show": false }, "sortBy": [ { "displayName": "Value", "desc": true } ] },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "topk(10, sum by (router) (rate(traefik_router_requests_total[5m])))", "format": "table", "instant": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "topk(10, sum by (router) (rate(traefik_router_requests_total{router=~\"$router\"}[5m])))", "format": "table", "instant": true, "refId": "A" }
       ],
       "title": "Top 10 Routers by Req/s",
       "transformations": [
@@ -131,7 +131,7 @@
       "id": 6,
       "options": { "showHeader": true, "footer": { "show": false }, "sortBy": [ { "displayName": "Value", "desc": true } ] },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "topk(10, sum by (service) (rate(traefik_service_requests_total{code=~\"5..|4..\"}[5m])) / clamp_min(sum by (service) (rate(traefik_service_requests_total[5m])), 0.001))", "format": "table", "instant": true, "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "topk(10, sum by (service) (rate(traefik_service_requests_total{service=~\"$service\",code=~\"5..|4..\"}[5m])) / clamp_min(sum by (service) (rate(traefik_service_requests_total{service=~\"$service\"}[5m])), 0.001))", "format": "table", "instant": true, "refId": "A" }
       ],
       "title": "Top 10 Services by 4xx+5xx Error Ratio",
       "transformations": [
@@ -164,7 +164,7 @@
         "yAxis": { "axisPlacement": "left", "reverse": false, "unit": "s" }
       },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (le) (rate(traefik_service_request_duration_seconds_bucket[1m]))", "format": "heatmap", "legendFormat": "{{ le }}", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (le) (rate(traefik_service_request_duration_seconds_bucket{service=~\"$service\"}[1m]))", "format": "heatmap", "legendFormat": "{{ le }}", "refId": "A" }
       ],
       "title": "Backend Response Latency Heatmap",
       "type": "heatmap"
@@ -190,7 +190,7 @@
       "id": 8,
       "options": { "legend": { "displayMode": "list", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total[1m])) by (method)", "legendFormat": "{{ method }}", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total{service=~\"$service\"}[1m])) by (method)", "legendFormat": "{{ method }}", "refId": "A" }
       ],
       "title": "Request Method Mix",
       "type": "timeseries"
@@ -214,7 +214,7 @@
       "id": 9,
       "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total[1m])) by (code)", "legendFormat": "{{ code }}", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total{service=~\"$service\"}[1m])) by (code)", "legendFormat": "{{ code }}", "refId": "A" }
       ],
       "title": "Status Code Stack",
       "type": "timeseries"
@@ -240,10 +240,57 @@
       "type": "timeseries"
     }
   ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true, "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      },
+      {
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "enable": true,
+        "iconColor": "red",
+        "name": "Firing Alerts",
+        "expr": "ALERTS{alertstate=\"firing\"}",
+        "step": "30s",
+        "titleFormat": "{{ alertname }}",
+        "tagKeys": "severity,name,container,service"
+      }
+    ]
+  },
   "refresh": "30s",
   "schemaVersion": 39,
   "tags": ["edgeproxy", "traefik", "http", "traffic"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(traefik_service_requests_total, service)",
+        "includeAll": true, "multi": true,
+        "label": "Service",
+        "name": "service",
+        "options": [],
+        "query": "label_values(traefik_service_requests_total, service)",
+        "refresh": 1, "type": "query"
+      },
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(traefik_router_requests_total, router)",
+        "includeAll": true, "multi": true,
+        "label": "Router",
+        "name": "router",
+        "options": [],
+        "query": "label_values(traefik_router_requests_total, router)",
+        "refresh": 1, "type": "query"
+      }
+    ]
+  },
   "time": { "from": "now-1h", "to": "now" },
   "timezone": "",
   "title": "EDGEPROXY -- HTTP Traffic",

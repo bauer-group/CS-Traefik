@@ -2,6 +2,11 @@
   "description": "Currently firing alerts (Alertmanager) + alert evaluation health (Prometheus rule manager). Operator's first stop when a page comes in.",
   "editable": true,
   "graphTooltip": 1,
+  "annotations": {
+    "list": [
+      { "builtIn": 1, "datasource": { "type": "grafana", "uid": "-- Grafana --" }, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard" }
+    ]
+  },
   "panels": [
     {
       "collapsed": false,
@@ -171,6 +176,37 @@
         { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "prometheus_rule_group_last_duration_seconds", "legendFormat": "{{ rule_group }}", "refId": "A" }
       ],
       "title": "Rule Group Eval Duration",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "id": 500,
+      "panels": [],
+      "title": "Alertmanager Silences",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Active and pending silences in Alertmanager. A non-zero silenced count means some alert is intentionally muted -- review periodically to make sure silences haven't outlived their purpose. Use the Alertmanager UI at /alertmanager to add/remove silences.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 30, "lineInterpolation": "stepAfter", "lineWidth": 2, "showPoints": "never", "spanNulls": true },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 35 },
+      "id": 9,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "alertmanager_silences{state=\"active\"}", "legendFormat": "active silences", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "alertmanager_silences{state=\"pending\"}", "legendFormat": "pending silences", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "alertmanager_silences{state=\"expired\"}", "legendFormat": "expired silences", "refId": "C" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(alertmanager_alerts_received_total[5m])", "legendFormat": "alerts received /s", "refId": "D" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(alertmanager_notifications_total[5m])", "legendFormat": "notifications dispatched /s {{ integration }}", "refId": "E" }
+      ],
+      "title": "Silences + Alertmanager Throughput",
       "type": "timeseries"
     },
     {

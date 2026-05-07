@@ -1,0 +1,173 @@
+{
+  "description": "Service-Level Indicators / Objectives. Default targets: 99.9% availability, p95 < 500ms, 5xx < 0.1%. Override via the $sloAvailability / $sloLatencyP95 / $sloErrorRate variables.",
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": [],
+      "title": "SLO Compliance (last 28 days)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Successful-request ratio over the SLO window. 99.9% target means 43 minutes of error budget per 30 days; 99.95% halves that to 22 minutes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 99 }, { "color": "green", "value": 99.9 } ] },
+          "unit": "percent",
+          "min": 95, "max": 100
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "showThresholdLabels": true, "showThresholdMarkers": true, "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "100 * (1 - (sum(rate(traefik_service_requests_total{code=~\"5..\"}[28d])) / clamp_min(sum(rate(traefik_service_requests_total[28d])), 0.001)))", "refId": "A" }
+      ],
+      "title": "Availability (28d) -- target $sloAvailability%",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "p95 backend response time over 28d -- if it stays below the target line, the latency SLO is met. Target is set via the $sloLatencyP95 variable.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.4 }, { "color": "red", "value": 0.5 } ] },
+          "unit": "s"
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 1 },
+      "id": 2,
+      "options": { "showThresholdLabels": false, "showThresholdMarkers": true, "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(traefik_service_request_duration_seconds_bucket[28d])) by (le))", "refId": "A" }
+      ],
+      "title": "p95 Latency (28d) -- target ${sloLatencyP95}s",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Error budget consumed so far in the 28d window. >100% = SLO breached (budget exhausted, freeze deploys until next window).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 50 }, { "color": "red", "value": 100 } ] },
+          "unit": "percent",
+          "min": 0, "max": 200
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 1 },
+      "id": 3,
+      "options": { "showThresholdLabels": true, "showThresholdMarkers": true, "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "100 * (sum(rate(traefik_service_requests_total{code=~\"5..\"}[28d])) / clamp_min(sum(rate(traefik_service_requests_total[28d])), 0.001)) / (1 - $sloAvailability/100)", "refId": "A" }
+      ],
+      "title": "Error Budget Burn (28d, % of budget)",
+      "type": "gauge"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+      "id": 200,
+      "panels": [],
+      "title": "Burn Rate Alerts (multi-window)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Multi-window burn-rate per Google SRE workbook. Fast-burn (1h x 14.4) catches outages; slow-burn (6h x 6, 24h x 3) catches gradual degradation. Lines crossing 1.0 = burning faster than budget allows.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true, "thresholdsStyle": { "mode": "line+area" } },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "id": 4,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "(sum(rate(traefik_service_requests_total{code=~\"5..\"}[1h])) / clamp_min(sum(rate(traefik_service_requests_total[1h])), 0.001)) / (1 - $sloAvailability/100)", "legendFormat": "1h burn rate", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "(sum(rate(traefik_service_requests_total{code=~\"5..\"}[6h])) / clamp_min(sum(rate(traefik_service_requests_total[6h])), 0.001)) / (1 - $sloAvailability/100)", "legendFormat": "6h burn rate", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "(sum(rate(traefik_service_requests_total{code=~\"5..\"}[24h])) / clamp_min(sum(rate(traefik_service_requests_total[24h])), 0.001)) / (1 - $sloAvailability/100)", "legendFormat": "24h burn rate", "refId": "C" }
+      ],
+      "title": "Burn Rate (multiplier of budget consumption speed)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "id": 300,
+      "panels": [],
+      "title": "Per-Service SLO",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Per-service availability + latency over 7d. Color-coded against SLO targets so it is one glance to see which service is misbehaving.",
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "left", "displayMode": "auto" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null } ] }, "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Avail %" }, "properties": [ { "id": "unit", "value": "percent" }, { "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 99 }, { "color": "green", "value": 99.9 } ] } } ] },
+          { "matcher": { "id": "byName", "options": "p95" }, "properties": [ { "id": "unit", "value": "s" }, { "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "thresholds", "value": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.4 }, { "color": "red", "value": 0.5 } ] } } ] }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 17 },
+      "id": 5,
+      "options": { "showHeader": true, "footer": { "show": false }, "sortBy": [ { "displayName": "Avail %", "desc": false } ] },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "100 * (1 - (sum by (service) (rate(traefik_service_requests_total{code=~\"5..\"}[7d])) / clamp_min(sum by (service) (rate(traefik_service_requests_total[7d])), 0.001)))", "format": "table", "instant": true, "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum by (le, service) (rate(traefik_service_request_duration_seconds_bucket[7d])))", "format": "table", "instant": true, "refId": "B" }
+      ],
+      "title": "Per-Service SLO (7d window)",
+      "transformations": [
+        { "id": "merge" },
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "instance": true, "job": true }, "renameByName": { "service": "Service", "Value #A": "Avail %", "Value #B": "p95" } } }
+      ],
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["edgeproxy", "slo", "sli", "availability"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "99.9", "value": "99.9" },
+        "label": "Availability target (%)",
+        "name": "sloAvailability",
+        "options": [ { "selected": true, "text": "99.9", "value": "99.9" } ],
+        "query": "99.9",
+        "type": "textbox"
+      },
+      {
+        "current": { "selected": true, "text": "0.5", "value": "0.5" },
+        "label": "Latency p95 target (s)",
+        "name": "sloLatencyP95",
+        "options": [ { "selected": true, "text": "0.5", "value": "0.5" } ],
+        "query": "0.5",
+        "type": "textbox"
+      },
+      {
+        "current": { "selected": true, "text": "0.1", "value": "0.1" },
+        "label": "Error rate target (%)",
+        "name": "sloErrorRate",
+        "options": [ { "selected": true, "text": "0.1", "value": "0.1" } ],
+        "query": "0.1",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": { "from": "now-28d", "to": "now" },
+  "timezone": "",
+  "title": "EDGEPROXY -- SLI / SLO",
+  "uid": "edgeproxy-slo",
+  "version": 1,
+  "weekStart": ""
+}

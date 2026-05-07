@@ -1,0 +1,227 @@
+{
+  "description": "Self-monitoring of the telemetry pipeline -- Prometheus TSDB health, scrape pool, Loki ingest. Fires the questions 'is monitoring itself OK?' and 'will my retention budget hold?'",
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": [],
+      "title": "Prometheus -- TSDB Health",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Total active series in the TSDB head. Cardinality canary -- a sudden jump usually means a label leak (a metric exposing high-cardinality user IDs etc.).",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 100000 }, { "color": "red", "value": 500000 } ] }, "unit": "short" } },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "prometheus_tsdb_head_series", "refId": "A" } ],
+      "title": "Active Series (cardinality)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Bytes Prometheus has written to its blocks. Used to project disk usage against `PROMETHEUS_RETENTION_SIZE`.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] }, "unit": "bytes" } },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "prometheus_tsdb_storage_blocks_bytes", "refId": "A" } ],
+      "title": "TSDB Block Size",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Time spent on the latest WAL replay. After every Prometheus restart this is the cold-start cost. Trend up = TSDB getting larger over time.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 30 }, { "color": "red", "value": 90 } ] }, "unit": "s" } },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "prometheus_tsdb_wal_replay_duration_seconds", "refId": "A" } ],
+      "title": "Last WAL Replay Duration",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Samples ingested per second. Compared to active-series, gives a rough idea of scrape volume.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] }, "unit": "ops" } },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(prometheus_tsdb_head_samples_appended_total[5m])", "refId": "A" } ],
+      "title": "Samples Appended /s",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Active-series growth over time. Flat = healthy steady state. Sudden upward step = label-leak / cardinality explosion (investigate before disk fills).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true, "thresholdsStyle": { "mode": "line" } },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "transparent", "value": null }, { "color": "yellow", "value": 100000 }, { "color": "red", "value": 500000 } ] },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "id": 5,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "prometheus_tsdb_head_series", "legendFormat": "active series", "refId": "A" } ],
+      "title": "Cardinality Trend",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Per-job scrape duration. Slow scrapes (>1s) often signal an exposing service is itself slow / overloaded. The metrics endpoint should respond in ms, not seconds.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 5, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true, "thresholdsStyle": { "mode": "line+area" } },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] },
+          "unit": "s"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "id": 6,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "scrape_duration_seconds", "legendFormat": "{{ job }}", "refId": "A" } ],
+      "title": "Scrape Duration per Job",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "id": 200,
+      "panels": [],
+      "title": "Prometheus -- Scrape Pool Health",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Per-target up/down. 1 = scraped successfully on last attempt; 0 = scrape failed. Sustained 0 = the target isn't running or its /metrics endpoint changed.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "align": "left", "displayMode": "auto" },
+          "mappings": [ { "options": { "0": { "color": "red", "index": 0, "text": "DOWN" }, "1": { "color": "green", "index": 1, "text": "UP" } }, "type": "value" } ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] },
+          "unit": "short"
+        },
+        "overrides": [ { "matcher": { "id": "byName", "options": "Status" }, "properties": [ { "id": "custom.cellOptions", "value": { "type": "color-background" } }, { "id": "custom.align", "value": "center" } ] } ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "id": 7,
+      "options": { "showHeader": true, "footer": { "show": false }, "sortBy": [ { "displayName": "Status", "desc": false } ] },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "up", "format": "table", "instant": true, "refId": "A" } ],
+      "title": "Scrape Targets",
+      "transformations": [ { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true }, "renameByName": { "job": "Job", "instance": "Instance", "service": "Service", "Value": "Status" } } } ],
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Total target up/down events over time, per job. Each step-down = a scrape failure. Useful to spot flaky targets (frequent step-downs).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 0, "lineInterpolation": "stepAfter", "lineWidth": 2, "showPoints": "never", "spanNulls": false },
+          "max": 1.1,
+          "min": -0.1,
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "id": 8,
+      "options": { "legend": { "calcs": ["min"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "up", "legendFormat": "{{ job }}", "refId": "A" } ],
+      "title": "Target Up/Down History",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "id": 300,
+      "panels": [],
+      "title": "Loki -- Ingest Health",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Bytes per second received by Loki's distributor. Monitor against `LOKI_RETENTION_PERIOD` * rate -> projected storage need.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] }, "unit": "Bps" } },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 23 },
+      "id": 9,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(loki_distributor_bytes_received_total[5m]))", "refId": "A" } ],
+      "title": "Loki Ingest Bps",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Active stream count -- Loki's analogue to Prometheus cardinality. Rising = log-source label diversity growing. Multi-tenancy / per-trace label leaks make this spike.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1000 }, { "color": "red", "value": 5000 } ] }, "unit": "short" } },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 23 },
+      "id": 10,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(loki_ingester_memory_streams)", "refId": "A" } ],
+      "title": "Active Streams",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Push requests rejected. Common reasons: per-stream rate-limit, max-stream-per-user, ingestion-rate-limit. Sustained rejects = Loki sized too small for the log volume.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.01 }, { "color": "red", "value": 0.1 } ] }, "unit": "ops" } },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 23 },
+      "id": 11,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(loki_distributor_lines_received_total[5m]) - rate(loki_distributor_bytes_received_total[5m])) or vector(0)", "refId": "A" } ],
+      "title": "Push Rejects /s",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Loki query latency. Heavy queries (regex over large windows) push this up. Also useful as a sanity check that Grafana queries are completing.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 } ] }, "unit": "s" } },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 23 },
+      "id": 12,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(loki_request_duration_seconds_bucket{route=~\"/loki/api/v1/(query|query_range|labels|series).*\"}[5m])) by (le))", "refId": "A" } ],
+      "title": "Loki Query p95",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Ingest bytes + lines per second over time. Line drops = Promtail not shipping; sustained spikes = a chatty service should be quieted (LOG_LEVEL or filter).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true },
+          "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "bytes/s" }, "properties": [ { "id": "unit", "value": "Bps" } ] }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 27 },
+      "id": 13,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(loki_distributor_lines_received_total[1m]))", "legendFormat": "lines/s", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(loki_distributor_bytes_received_total[1m]))", "legendFormat": "bytes/s", "refId": "B" }
+      ],
+      "title": "Loki Ingest Trend",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["edgeproxy", "self-monitoring", "prometheus", "loki"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "",
+  "title": "EDGEPROXY -- Self-Monitoring",
+  "uid": "edgeproxy-self-monitoring",
+  "version": 1,
+  "weekStart": ""
+}
