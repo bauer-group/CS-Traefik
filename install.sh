@@ -782,13 +782,15 @@ EOF
         mode_choice=${mode_choice:-1}
     fi
 
-    local api_host="" api_base_url="http://localhost:9090"
+    local api_host="" api_base_url="http://localhost:9090" default_whitelist
     case "$mode_choice" in
         2)
             set_env API_BIND      "0.0.0.0"
             set_env API_BIND_V6   "::"
             set_env API_HOST      ""
             set_env API_BASE_URL  "http://localhost:9090"
+            # LAN-accessible: allow loopback + all RFC1918 ranges by default.
+            default_whitelist="127.0.0.1/32, ::1/128, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16"
             ;;
         3)
             api_host=$(ask "Admin FQDN (must host NO application)" "admin.${default_domain}")
@@ -797,20 +799,24 @@ EOF
             set_env API_HOST      "$api_host"
             set_env API_BASE_URL  "https://${api_host}"
             api_base_url="https://${api_host}"
+            # Public FQDN: whitelist is the last line before BasicAuth, so
+            # default to loopback only -- operator MUST add their admin CIDR.
+            default_whitelist="127.0.0.1/32, ::1/128"
             ;;
         *)
             set_env API_BIND      "127.0.0.1"
             set_env API_BIND_V6   "::1"
             set_env API_HOST      ""
             set_env API_BASE_URL  "http://localhost:9090"
+            # Localhost-only listener: anything beyond loopback is misleading.
+            default_whitelist="127.0.0.1/32, ::1/128"
             ;;
     esac
 
     set_env API_PORT "9090"
 
     local api_whitelist
-    api_whitelist=$(ask "IP whitelist (comma-separated CIDRs)" \
-        "127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8")
+    api_whitelist=$(ask "IP whitelist (comma-separated CIDRs)" "$default_whitelist")
     set_env API_WHITELIST "$api_whitelist"
 
     local admin_user admin_pass admin_pass_display="" auth_string
@@ -846,8 +852,11 @@ EOF
     # ---- Let's Encrypt ----
     print_section "Let's Encrypt"
     set_env_section "Let's Encrypt"
+    # Let's Encrypt stopped sending expiry-notification mails in June 2025,
+    # so this address is effectively just the ACME account contact -- the
+    # default is fine to accept on most installs.
     local le_email
-    le_email=$(ask "ACME contact email" "admin@${default_domain}")
+    le_email=$(ask "ACME contact email" "info@bauer-group.com")
     set_env LETSENCRYPT_EMAIL "$le_email"
 
     if [[ "$(ask_yes_no "Use Let's Encrypt staging (recommended for first run)?" N)" == "yes" ]]; then

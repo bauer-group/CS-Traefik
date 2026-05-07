@@ -44,6 +44,11 @@ print_header() {
     echo "==============================================================================="
     echo -e "${NC}"
 }
+print_section() {
+    echo
+    echo -e "${CYAN}${BOLD}>> $1${NC}"
+    echo -e "${CYAN}-------------------------------------------------------------------------------${NC}"
+}
 print_info()    { echo -e "${BLUE}-->${NC} $1"; }
 print_success() { echo -e "${GREEN}OK${NC}  $1"; }
 print_warning() { echo -e "${YELLOW}!!${NC}  $1"; }
