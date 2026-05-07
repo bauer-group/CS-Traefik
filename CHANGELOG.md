@@ -1,3 +1,9 @@
+## [0.9.6](https://github.com/bauer-group/CS-Traefik/compare/v0.9.5...v0.9.6) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **installer,wizard:** added missing print_section + tightened wizard defaults ([a9830f2](https://github.com/bauer-group/CS-Traefik/commit/a9830f2227dc14c0709d5e4821f6187ca1fc763b))
+
 ## [0.9.5](https://github.com/bauer-group/CS-Traefik/compare/v0.9.4...v0.9.5) (2026-05-07)
 
 ### 🐛 Bug Fixes
