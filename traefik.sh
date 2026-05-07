@@ -21,13 +21,16 @@ ENV_FILE="$PROJECT_ROOT/.env"
 # -----------------------------------------------------------------------------
 # Colors
 # -----------------------------------------------------------------------------
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
+# ANSI-C ($'...') quoting stores the actual ESC byte (0x1B) in the variable,
+# not a 7-character literal "\033[1m". That way `cat <<EOF` (used in cmd_help)
+# renders the colors correctly without needing `echo -e` everywhere.
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+BLUE=$'\033[0;34m'
+CYAN=$'\033[0;36m'
+BOLD=$'\033[1m'
+NC=$'\033[0m'
 
 # -----------------------------------------------------------------------------
 # Output helpers
