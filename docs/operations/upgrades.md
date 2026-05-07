@@ -1,9 +1,72 @@
 # Upgrades
 
-How to update the stack — the two distinct update paths and when to
-use each.
+How to update the stack. There are two structurally different upgrade
+paths and they should not be confused:
 
-## Two paths
+| Path | Source state | Use when |
+| --- | --- | --- |
+| **Routine upgrade** | An existing CS-Traefik v3 install at `/opt/edgeproxy` | Pulling newer scripts / configs / images on a host that already runs v3 |
+| **v2 → v3 upgrade** | The legacy `EDGEPROXY` Traefik v2 stack at `/opt/edgeproxy` | First-time migration from the old v2 stack to v3 |
+
+The two paths use different one-liners. Pick the one that matches the
+current state of the host.
+
+## One-line upgrades (curl-pipe)
+
+### v2 → v3 in-place upgrade
+
+For hosts still running the legacy v2 EDGEPROXY stack at
+`/opt/edgeproxy`:
+
+```bash
+# Interactive (asks for confirmation -- works even via curl|bash, reads /dev/tty)
+curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install.sh \
+    | sudo bash -s -- upgrade
+
+# Unattended (Ansible / Salt / fleet rollout to thousands of hosts)
+curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install.sh \
+    | sudo bash -s -- upgrade --auto
+
+# Dry-run (detects v2 state, prints planned actions, exits without changes)
+curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install.sh \
+    | sudo bash -s -- upgrade --dry-run
+```
+
+What it does (full walkthrough in
+[`migration-from-v2.md`](migration-from-v2.md)):
+
+1. Detects the running v2 stack via container labels.
+2. Stops v2 cleanly, removes the v2 networks.
+3. Atomically renames `/opt/edgeproxy` → `/opt/edgeproxy.backup-<timestamp>`.
+4. Clones the v3 repo fresh into `/opt/edgeproxy`.
+5. Migrates the ACME storage from the v2 backup, **preserving the
+   `Account` block** so Let's Encrypt does not see a new account
+   registration (avoids hitting the rate-limit).
+6. Generates a new `.env` from the v2 config (env-var migration table
+   in `migration-from-v2.md`).
+7. Starts the v3 stack and verifies the dashboard / ACME resolver.
+8. Prints the structured post-action summary (container state,
+   admin-access URL, ACME state).
+
+The v2 backup directory is kept for at least one cycle -- if the v3
+start fails or behaviour is wrong, recovery is a directory rename.
+
+### Routine v3 upgrade
+
+For hosts already running v3 at `/opt/edgeproxy`:
+
+```bash
+# Pull new scripts/configs + new images in one go
+sudo /opt/edgeproxy/traefik.sh deploy && \
+    sudo /opt/edgeproxy/traefik.sh update
+```
+
+There is no curl-pipe variant for routine upgrades because the install
+is already on disk -- `traefik.sh` is the local entry point and runs
+`git pull` itself in `deploy`. For fleet rollout from a control node,
+push the same two-line script via Ansible / Salt.
+
+## Two paths (explained)
 
 CS-Traefik separates **scripts/configs** from **container images**:
 
@@ -147,10 +210,12 @@ set on every service).
 
 ## Major upgrade gotchas
 
-### Traefik v2.x → v3.x (which CS-Traefik already does)
+### Legacy EDGEPROXY v2 → CS-Traefik v3
 
-Already handled by CS-Traefik. The differences from legacy v2.x are
-documented in [`migration-from-v2.md`](migration-from-v2.md).
+Use `install.sh upgrade` (curl-pipe one-liner above) -- it handles
+container shutdown, ACME-cert import (Account block preserved), and
+env-var migration in one shot. Phase-by-phase walkthrough in
+[`migration-from-v2.md`](migration-from-v2.md).
 
 ### Prometheus 2.x → 3.x (when it arrives)
 
