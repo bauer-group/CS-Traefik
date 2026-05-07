@@ -152,7 +152,7 @@ applies to any given request, depending on the source IP:
 
 | Router | Priority | Source-IP rule | Auth required? | Whitelist? | Used by |
 | --- | --- | --- | --- | --- | --- |
-| `dashboard-internal` | 300 | `ClientIP(${INTERNAL_SUBNET:-172.30.64.0/16})` OR `ClientIP(${INTERNAL_SUBNET_V6:-fdff:30:64::/64})` | **No** | **No** | Monitoring stack containers on the EDGEPROXY-INTERNAL Docker network |
+| `dashboard-internal` | 300 | `ClientIP(100.64.0.0/16)` OR `ClientIP(fdff:100:64::/64)` | **No** | **No** | Monitoring stack containers on the EDGEPROXY-INTERNAL Docker network |
 | `dashboard-public` | 300 | `Host(${API_HOST})` on `web-secure` | **BasicAuth** | **`API_WHITELIST`** | Mode-3 only -- public-FQDN access over HTTPS |
 | `dashboard-public-http` | 300 | `Host(${API_HOST})` on `web` | (redirect only) | **`API_WHITELIST`** | Mode-3 only -- HTTP -> HTTPS redirect for the admin FQDN |
 | `dashboard-local` | 200 (catch-all) | Everything else | **BasicAuth** | **`API_WHITELIST`** | Operators via host loopback / SSH tunnel |
