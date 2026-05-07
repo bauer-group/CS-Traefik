@@ -1,3 +1,9 @@
+## [0.9.3](https://github.com/bauer-group/CS-Traefik/compare/v0.9.2...v0.9.3) (2026-05-07)
+
+### 🐛 Bug Fixes
+
+* **networking,wizard,grafana:** real fixes from production install run ([9459fd8](https://github.com/bauer-group/CS-Traefik/commit/9459fd8d0f05573ad7373a33aeb17429d378d053))
+
 ## [0.9.2](https://github.com/bauer-group/CS-Traefik/compare/v0.9.1...v0.9.2) (2026-05-07)
 
 ### 🐛 Bug Fixes
