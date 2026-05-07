@@ -1,3 +1,9 @@
+## [0.8.0](https://github.com/bauer-group/CS-Traefik/compare/v0.7.0...v0.8.0) (2026-05-07)
+
+### 🚀 Features
+
+* **stability:** light Traefik OOM bias + small-host-safe defaults + no pids_limit ([4b91743](https://github.com/bauer-group/CS-Traefik/commit/4b91743c70a7ec51adbcb64b83ea431e1dae5b86))
+
 ## [0.7.0](https://github.com/bauer-group/CS-Traefik/compare/v0.6.0...v0.7.0) (2026-05-07)
 
 ### 🚀 Features
