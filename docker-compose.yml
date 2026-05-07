@@ -523,8 +523,7 @@ services:
 #
 # `proxy-internal` = internal-only sidecar network for Traefik <->
 # monitoring chatter. Subnets 100.64.0.0/16 + fdff:100:64::/64 --
-# also identical to v2. Not reachable from the host's public
-# interfaces.
+# Not reachable from the host's public interfaces.
 networks:
   proxy:
     name: ${NETWORK_NAME:-EDGEPROXY}
