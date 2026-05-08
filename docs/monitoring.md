@@ -141,11 +141,15 @@ Want the standard community dashboards too? Import via Grafana UI:
 - Alertmanager (UID: `alertmanager`) — `http://alertmanager:9093/alertmanager`
   (sub-path because Alertmanager runs with `--web.route-prefix=/alertmanager`).
 
-**Grafana login**: separate from the api entrypoint BasicAuth.
-`GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` in `.env`. Why two
-auth layers? Grafana's session login supports OAuth / OIDC; the edge
-BasicAuth doesn't. Keeping them separate lets you swap to SSO later
-without re-architecting.
+**Grafana login**: disabled by default — the api-entrypoint BasicAuth
+(`api-auth@docker` + `api-whitelist@docker`, same chain as Prometheus
+and Alertmanager) is the single auth wall. Anonymous role is `Admin`,
+so anyone past the edge gets full edit rights without a second login.
+`GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` in `.env` still seed
+the DB admin for HTTP-API use and `grafana-cli admin reset-admin-
+password` recovery. To swap in OAuth / OIDC later, flip
+`GF_AUTH_DISABLE_LOGIN_FORM=false` + configure the SSO provider via
+`GF_AUTH_GENERIC_OAUTH_*` (compose overlay).
 
 **Sub-path serving**: Grafana is served at `/grafana` via
 `GF_SERVER_ROOT_URL` + `GF_SERVER_SERVE_FROM_SUB_PATH=true`. All

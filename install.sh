@@ -871,15 +871,18 @@ EOF
     # ---- Monitoring credentials (if profile selected) ----
     local grafana_pass_display="" grafana_user="admin"
     if [[ ",$profiles," == *",monitoring,"* ]]; then
-        print_section "Monitoring (Grafana admin credentials)"
-        set_env_section "Monitoring (Grafana login)"
+        print_section "Monitoring (Grafana bootstrap credentials)"
+        set_env_section "Monitoring (Grafana bootstrap admin)"
         echo "Grafana, Prometheus, and Alertmanager all live behind the api"
         echo "entrypoint at /grafana /prometheus /alertmanager. They share the"
-        echo "same BasicAuth + IP whitelist as the Traefik dashboard."
-        echo "Grafana additionally has its OWN login (the credentials below)."
+        echo "SAME BasicAuth + IP whitelist as the Traefik dashboard."
+        echo
+        echo "Grafana's own login UI is DISABLED -- the BasicAuth credential"
+        echo "is the single auth identity. The values below seed Grafana's DB"
+        echo "admin for HTTP-API access and emergency password reset only."
         echo
         local grafana_pass
-        grafana_user=$(ask "Grafana admin username" "admin")
+        grafana_user=$(ask "Grafana DB admin username (bootstrap, not for UI login)" "admin")
         set_env GRAFANA_ADMIN_USER "$grafana_user"
 
         if [[ "$INTERACTIVE" == true ]] \
@@ -894,11 +897,13 @@ EOF
         set_env GRAFANA_ADMIN_PASSWORD "$grafana_pass"
         grafana_pass_display="$grafana_pass"
         set_env_comment_block "GRAFANA_PLAINTEXT" \
-            "Grafana login (separate from API_USERS BasicAuth)" \
+            "Grafana DB admin (bootstrap / API / emergency reset)" \
             "User:     $grafana_user" \
             "Password: $grafana_pass" \
-            "Live credential is GRAFANA_ADMIN_PASSWORD above. Delete this" \
-            "block once saved in your password manager."
+            "Login UI is disabled by default -- access Grafana via" \
+            "API_USERS BasicAuth at the edge. These creds are for HTTP-API" \
+            "calls and \`grafana-cli admin reset-admin-password\` only." \
+            "Delete this block once saved in your password manager."
     fi
 
     # Lock down .env
@@ -920,7 +925,7 @@ EOF
         echo
         echo -e "  ${YELLOW}${BOLD}Generated credentials (save these now!):${NC}"
         [[ -n "$admin_pass_display"   ]] && echo -e "    Admin (BasicAuth): ${admin_user} / ${BOLD}${admin_pass_display}${NC}"
-        [[ -n "$grafana_pass_display" ]] && echo -e "    Grafana login:     ${grafana_user} / ${BOLD}${grafana_pass_display}${NC}"
+        [[ -n "$grafana_pass_display" ]] && echo -e "    Grafana DB admin:  ${grafana_user} / ${BOLD}${grafana_pass_display}${NC}  ${YELLOW}(API / recovery only -- UI uses BasicAuth above)${NC}"
     fi
     echo
 }
@@ -1279,9 +1284,9 @@ generate_env_with_migration() {
     if [[ -n "${V2_OLD_ENV[GRAFANA_ADMIN_PASSWORD]:-}" ]]; then
         local pwd="${V2_OLD_ENV[GRAFANA_ADMIN_PASSWORD]}"
         pwd="${pwd#\"}"; pwd="${pwd%\"}"; pwd="${pwd#\'}"; pwd="${pwd%\'}"
-        set_env_section "Monitoring (Grafana login)"
+        set_env_section "Monitoring (Grafana bootstrap admin)"
         set_env GRAFANA_ADMIN_PASSWORD "$pwd"
-        print_info "GRAFANA_ADMIN_PASSWORD migrated"
+        print_info "GRAFANA_ADMIN_PASSWORD migrated (DB admin / API / recovery; UI login is disabled by default)"
     fi
 
     # Restore caller's ENV_FILE (defensive; upgrade flow may continue).

@@ -161,23 +161,41 @@ services:
     environment:
       TZ: ${TIME_ZONE:-Etc/UTC}
 
+      # Bootstrap admin user -- still seeded into Grafana's DB on first
+      # start. With GF_AUTH_DISABLE_LOGIN_FORM below the user cannot log
+      # in via the UI; the credentials remain useful for the HTTP API
+      # and for `grafana-cli admin reset-admin-password` emergency
+      # recovery if the login form is ever flipped back on.
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
       GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
       GF_SECURITY_ALLOW_EMBEDDING: "false"
       GF_SECURITY_COOKIE_SAMESITE: "lax"
-      # Anonymous viewer is ON by default -- Grafana sits BEHIND the
-      # Traefik api-entrypoint BasicAuth + IP whitelist, so a second
-      # login at the Grafana layer is friction without security gain
-      # (you've already proven you're trusted to reach the admin surface).
-      # Editing dashboards / changing settings still requires the
-      # GF_SECURITY_ADMIN_USER/PASSWORD login. To force a Grafana login
-      # for read-only viewing too, set GF_AUTH_ANONYMOUS_ENABLED=false
-      # in .env (e.g. multi-tenant teams that share the api wall but
-      # want per-user audit trails).
-      GF_AUTH_ANONYMOUS_ENABLED: "${GF_AUTH_ANONYMOUS_ENABLED:-true}"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: "${GF_AUTH_ANONYMOUS_ORG_ROLE:-Viewer}"
-      GF_AUTH_BASIC_ENABLED: "true"
+
+      # Auth model: the edge is the only auth wall.
+      #   * External access via Traefik (api entrypoint OR public FQDN)
+      #     is gated by api-auth@docker (BasicAuth from API_USERS) +
+      #     api-whitelist@docker (IP whitelist from API_WHITELIST) on
+      #     the grafana-local / grafana-public routers below.
+      #   * Internal container-to-container traffic on the
+      #     proxy-internal Docker network bypasses Traefik entirely
+      #     (direct DNS) -- no auth needed inside the trusted network.
+      #
+      # Consequence: anyone past BasicAuth at the edge is fully trusted,
+      # so anonymous = Admin (full edit rights, no second login). The
+      # Grafana login form is hidden -- there is no Grafana session
+      # layer to confuse with the BasicAuth credential, and there is
+      # no SPA-login flow that could break under a layered BasicAuth.
+      #
+      # Override the anonymous role in .env if you want a less-permissive
+      # default even for already-authenticated edge clients (Editor /
+      # Viewer). For a per-user Grafana login on top of BasicAuth, flip
+      # GF_AUTH_BASIC_ENABLED=true + GF_AUTH_DISABLE_LOGIN_FORM=false
+      # via a compose overlay -- not the recommended path here.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "${GF_AUTH_ANONYMOUS_ORG_ROLE:-Admin}"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_USERS_ALLOW_ORG_CREATE: "false"
 
@@ -200,16 +218,16 @@ services:
       traefik.enable: "true"
       traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
 
-      # Grafana has its own login -- DON'T re-auth at the edge (would
-      # break OAuth / SSO redirects). Just IP whitelist + (when public)
-      # the BasicAuth chain on top of admin login is double protection.
-      # Localhost: only IP whitelist (loopback by default anyway).
+      # Edge-only auth model: BasicAuth + IP whitelist at the Traefik
+      # layer, no second login inside Grafana (login form hidden).
+      # Identical middleware chain to prometheus-local / alertmanager-
+      # local -- Grafana is no longer a special case.
       # Priority 200 -- catch-all admin gate, see prometheus-local above.
       traefik.http.routers.grafana-local.rule: "PathPrefix(`/grafana`)"
       traefik.http.routers.grafana-local.entrypoints: "api"
       traefik.http.routers.grafana-local.service: "grafana"
       traefik.http.routers.grafana-local.priority: "200"
-      traefik.http.routers.grafana-local.middlewares: "api-whitelist@docker"
+      traefik.http.routers.grafana-local.middlewares: "api-auth@docker,api-whitelist@docker"
 
       # Public router (only when API_HOST is set).
       # Fail-closed via never-match placeholder when API_HOST unset --
@@ -220,7 +238,7 @@ services:
       traefik.http.routers.grafana-public.tls: "true"
       traefik.http.routers.grafana-public.tls.certresolver: "letsencrypt"
       traefik.http.routers.grafana-public.priority: "300"
-      traefik.http.routers.grafana-public.middlewares: "api-whitelist@docker"
+      traefik.http.routers.grafana-public.middlewares: "api-auth@docker,api-whitelist@docker"
 
       traefik.http.services.grafana.loadbalancer.server.port: "3000"
     volumes:

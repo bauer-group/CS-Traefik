@@ -11,7 +11,7 @@ ssh -L 9090:127.0.0.1:9090 user@server
 
 # In your browser:
 http://127.0.0.1:9090/dashboard/      # Traefik dashboard
-http://127.0.0.1:9090/grafana/        # Grafana (own login on top of BasicAuth)
+http://127.0.0.1:9090/grafana/        # Grafana (BasicAuth at the edge, no second login)
 http://127.0.0.1:9090/prometheus/     # Prometheus
 http://127.0.0.1:9090/alertmanager/   # Alertmanager
 ```
@@ -139,10 +139,19 @@ Mode 1 + 2 + 3 all enforce **two** auth layers:
    username + password from `API_USERS`. Otherwise: `401
    Unauthorized` with a `WWW-Authenticate: Basic realm="..."` prompt.
 
-Grafana is special: only the IP whitelist is enforced at the edge,
-because Grafana has its own login session (`GRAFANA_ADMIN_USER` /
-`GRAFANA_ADMIN_PASSWORD`). Layering BasicAuth on top of Grafana's
-SPA-login would break OAuth / OIDC redirects.
+Grafana uses the same edge auth chain as Prometheus / Alertmanager
+(`api-auth@docker,api-whitelist@docker`). Grafana's own login UI is
+disabled (`GF_AUTH_BASIC_ENABLED=false`,
+`GF_AUTH_DISABLE_LOGIN_FORM=true`); the anonymous role is Admin so the
+BasicAuth credential is the single auth identity. `GRAFANA_ADMIN_USER`
+/ `GRAFANA_ADMIN_PASSWORD` are still seeded for HTTP-API use and
+`grafana-cli admin reset-admin-password` recovery, not for UI login.
+
+Inside the `proxy-internal` Docker network, container-to-container
+traffic (Grafana → Prometheus / Loki / Alertmanager) bypasses Traefik
+entirely via direct DNS — so no auth applies there either, by design.
+The internal network is the trust boundary; the edge enforces auth
+for human access only.
 
 ## Two-router model: internal vs external
 
