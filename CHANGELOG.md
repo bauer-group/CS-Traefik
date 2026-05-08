@@ -1,3 +1,19 @@
+## [1.0.0](https://github.com/bauer-group/CS-Traefik/compare/v0.9.12...v1.0.0) (2026-05-08)
+
+### ⚠ BREAKING CHANGES
+
+* **monitoring:** Grafana's own login UI is disabled by default. Users
+who previously logged in with GRAFANA_ADMIN_USER/PASSWORD now
+authenticate at the edge with API_USERS BasicAuth instead. Operators
+relying on per-user Grafana audit trails must opt back in via a
+compose overlay (GF_AUTH_BASIC_ENABLED=true and
+GF_AUTH_DISABLE_LOGIN_FORM=false), plus an SSO provider config if
+desired.
+
+### 🐛 Bug Fixes
+
+* **monitoring:** enforced edge BasicAuth on grafana router ([87939c2](https://github.com/bauer-group/CS-Traefik/commit/87939c21f18059658007cb4771bd8a3cc519a802))
+
 ## [0.9.12](https://github.com/bauer-group/CS-Traefik/compare/v0.9.11...v0.9.12) (2026-05-07)
 
 ### ♻️ Refactoring
