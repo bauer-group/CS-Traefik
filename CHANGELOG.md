@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/bauer-group/CS-Traefik/compare/v1.0.0...v1.0.1) (2026-05-10)
+
+### ♻️ Refactoring
+
+* **monitoring:** renamed api entrypoint to monitoring and consolidated host-port binding ([1181f73](https://github.com/bauer-group/CS-Traefik/commit/1181f732d44b3e0a1da9ac5342c255cad4b050bb))
+
 ## [1.0.0](https://github.com/bauer-group/CS-Traefik/compare/v0.9.12...v1.0.0) (2026-05-08)
 
 ### ⚠ BREAKING CHANGES
