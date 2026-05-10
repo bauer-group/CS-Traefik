@@ -37,12 +37,12 @@ services:
       - "traefik.http.middlewares.${STACK_NAME:-api}-https-redirect.redirectscheme.scheme=https"
       - "traefik.http.middlewares.${STACK_NAME:-api}-https-redirect.redirectscheme.permanent=true"
 
-      - "traefik.http.routers.${STACK_NAME:-api}-http.rule=Host(`${API_HOSTNAME}`)"
+      - "traefik.http.routers.${STACK_NAME:-api}-http.rule=Host(`${MONITORING_HOSTNAME}`)"
       - "traefik.http.routers.${STACK_NAME:-api}-http.entrypoints=web"
       - "traefik.http.routers.${STACK_NAME:-api}-http.middlewares=${STACK_NAME:-api}-https-redirect"
 
       # ── HTTPS router ──
-      - "traefik.http.routers.${STACK_NAME:-api}-https.rule=Host(`${API_HOSTNAME}`)"
+      - "traefik.http.routers.${STACK_NAME:-api}-https.rule=Host(`${MONITORING_HOSTNAME}`)"
       - "traefik.http.routers.${STACK_NAME:-api}-https.entrypoints=web-secure"
       - "traefik.http.routers.${STACK_NAME:-api}-https.tls=true"
       - "traefik.http.routers.${STACK_NAME:-api}-https.tls.certresolver=letsencrypt"
@@ -101,7 +101,7 @@ networks:
 
 ```env
 STACK_NAME=customer-api
-API_HOSTNAME=api.bauer-group.com
+MONITORING_HOSTNAME=api.bauer-group.com
 PROXY_NETWORK=EDGEPROXY
 
 DATABASE_PASSWORD=...generate...

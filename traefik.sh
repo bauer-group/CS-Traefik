@@ -104,6 +104,12 @@ build_compose_cmd() {
             [[ -z "$p" ]] && continue
             case "$p" in
                 monitoring)
+                    # The monitoring overlay also carries the host-port
+                    # binding for the `monitoring` entrypoint (9090) --
+                    # without the monitoring profile there is no
+                    # externally-visible reason to bind it, so the
+                    # binding lives in the same file as Grafana /
+                    # Prometheus / Alertmanager.
                     files+=("-f" "docker-compose.monitoring.yml")
                     profile_flags+=("--profile" "monitoring")
                     ;;
@@ -178,9 +184,9 @@ print_access_info() {
     local profiles api_port api_bind data_dir api_host
 
     profiles=$(get_profiles)
-    api_port=$(get_env_value API_PORT); api_port=${api_port:-9090}
-    api_bind=$(get_env_value API_BIND); api_bind=${api_bind:-127.0.0.1}
-    api_host=$(get_env_value API_HOST)
+    api_port=$(get_env_value MONITORING_PORT); api_port=${api_port:-9090}
+    api_bind=$(get_env_value MONITORING_BIND); api_bind=${api_bind:-127.0.0.1}
+    api_host=$(get_env_value MONITORING_HOST)
     data_dir=$(resolve_data_dir)
 
     echo "  ${BOLD}Profiles active:${NC} ${profiles:-<core only>}"
@@ -196,7 +202,7 @@ print_access_info() {
             echo "    SSH-tunnel from your workstation:"
             echo "      ssh -L ${api_port}:${api_bind}:${api_port} root@<this-host>"
         fi
-        if [[ -n "$api_host" && "$api_host" != "__api_host_not_set__"* ]]; then
+        if [[ -n "$api_host" && "$api_host" != "__monitoring_host_not_set__"* ]]; then
             echo "    Public FQDN (mode 3): https://${api_host}/dashboard/"
         fi
         if [[ "$profiles" == *"monitoring"* ]]; then

@@ -18,8 +18,8 @@
 #     --profile monitoring up -d
 #
 # ACCESS PATTERN (matches legacy EDGEPROXY behaviour):
-#   * Default mode: admin UIs are reachable ONLY via the `api` entrypoint
-#     bound to ${API_BIND:-127.0.0.1}:${API_PORT:-9090}. SSH-tunnel from
+#   * Default mode: admin UIs are reachable ONLY via the `monitoring` entrypoint
+#     bound to ${MONITORING_BIND:-127.0.0.1}:${MONITORING_PORT:-9090}. SSH-tunnel from
 #     your workstation:
 #       ssh -L 9090:127.0.0.1:9090 user@server
 #       open http://127.0.0.1:9090/grafana/
@@ -27,10 +27,10 @@
 #                                 /alertmanager/
 #                                 /dashboard/   (Traefik dashboard)
 #
-#   * Public mode (opt-in): set API_HOST=admin.bauer-group.com in .env
+#   * Public mode (opt-in): set MONITORING_HOST=admin.bauer-group.com in .env
 #     -- a second router on web-secure activates with TLS + BasicAuth +
 #     IP whitelist. Same URLs:
-#       https://${API_HOST}/grafana/   /prometheus/   ...
+#       https://${MONITORING_HOST}/grafana/   /prometheus/   ...
 # =============================================================================
 
 # Shared logging policy -- see docker-compose.yml for the rationale on
@@ -46,6 +46,35 @@ x-logging: &default-logging
 
 
 services:
+
+  # ---------------------------------------------------------------------------
+  # Traefik -- merge-only block, adds the monitoring-entrypoint host-port binding.
+  # ---------------------------------------------------------------------------
+  # The base docker-compose.yml exposes ONLY 80/443 on the host. The
+  # admin/dashboard `monitoring` entrypoint (default 127.0.0.1:9090) lives here
+  # because the only externally-visible reason to bind 9090 is the
+  # monitoring UIs (Grafana, Prometheus, Alertmanager) -- they sit on
+  # path-prefixes of the monitoring entrypoint. Pure-proxy installs without
+  # monitoring leave 9090 unbound on the host entirely; the entrypoint
+  # itself still LISTENS inside the container (defined in
+  # config/traefik/traefik.yml as `monitoring: address: ":9090/tcp"`), so
+  # internal scrapes on the proxy-internal network keep working.
+  #
+  # Compose merges this `ports:` list additively with the 80/443 entries
+  # in the base file -- no conflict, no duplication.
+  #
+  # MONITORING_BIND (IPv4) and MONITORING_BIND_V6 (IPv6) default to loopback only
+  # (127.0.0.1 + ::1). Both ALWAYS bind so SSH-tunnel access from
+  # either stack works. To expose on the LAN, set BOTH:
+  #   MONITORING_BIND=0.0.0.0
+  #   MONITORING_BIND_V6=::
+  # Even then, BasicAuth + IP whitelist gate access. For full public
+  # exposure with TLS, prefer MONITORING_HOST + the web-secure router (no
+  # monitoring overlay needed for that path -- it routes via 443).
+  traefik:
+    ports:
+      - "${MONITORING_BIND:-127.0.0.1}:${MONITORING_PORT:-9090}:9090/tcp"
+      - "[${MONITORING_BIND_V6:-::1}]:${MONITORING_PORT:-9090}:9090/tcp"
 
   # ---------------------------------------------------------------------------
   # Prometheus -- metrics TSDB + scraper
@@ -76,7 +105,7 @@ services:
       - "--web.console.templates=/usr/share/prometheus/consoles"
       - "--web.enable-lifecycle"
       - "--web.enable-remote-write-receiver"
-      - "--web.external-url=${API_BASE_URL:-http://localhost:9090}/prometheus"
+      - "--web.external-url=${MONITORING_BASE_URL:-http://localhost:9090}/prometheus"
       - "--web.route-prefix=/prometheus"
     environment:
       TZ: ${TIME_ZONE:-Etc/UTC}
@@ -85,31 +114,31 @@ services:
       traefik.enable: "true"
       traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
 
-      # Localhost router on the api entrypoint. Priority 200 matches the
+      # Localhost router on the monitoring entrypoint. Priority 200 matches the
       # dashboard-local catch-all in docker-compose.yml -- well above any
       # plausible app rule's implicit priority (~150 max), so an app
-      # accidentally on the api entrypoint can't bypass api-auth +
-      # api-whitelist via a long rule string.
+      # accidentally on the monitoring entrypoint can't bypass monitoring-auth +
+      # monitoring-whitelist via a long rule string.
       traefik.http.routers.prometheus-local.rule: "PathPrefix(`/prometheus`)"
-      traefik.http.routers.prometheus-local.entrypoints: "api"
+      traefik.http.routers.prometheus-local.entrypoints: "monitoring"
       traefik.http.routers.prometheus-local.service: "prometheus"
       traefik.http.routers.prometheus-local.priority: "200"
-      traefik.http.routers.prometheus-local.middlewares: "api-auth@docker,api-whitelist@docker"
+      traefik.http.routers.prometheus-local.middlewares: "monitoring-auth@docker,monitoring-whitelist@docker"
 
-      # Public router (only when API_HOST is set in .env).
-      # `${API_HOST:-__api_host_not_set__.invalid}` makes the rule
-      # fail-closed when API_HOST is unset -- without this, an empty
+      # Public router (only when MONITORING_HOST is set in .env).
+      # `${MONITORING_HOST:-__monitoring_host_not_set__.invalid}` makes the rule
+      # fail-closed when MONITORING_HOST is unset -- without this, an empty
       # rule would fall through to the docker provider's default
       # `Host({{ normalize .Name }})` and silently activate against
       # the container's name. Priority 300 protects the admin FQDN
       # from being shadowed by app routers on web-secure.
-      traefik.http.routers.prometheus-public.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`) && PathPrefix(`/prometheus`)"
+      traefik.http.routers.prometheus-public.rule: "Host(`${MONITORING_HOST:-__monitoring_host_not_set__.invalid}`) && PathPrefix(`/prometheus`)"
       traefik.http.routers.prometheus-public.entrypoints: "web-secure"
       traefik.http.routers.prometheus-public.service: "prometheus"
       traefik.http.routers.prometheus-public.tls: "true"
       traefik.http.routers.prometheus-public.tls.certresolver: "letsencrypt"
       traefik.http.routers.prometheus-public.priority: "300"
-      traefik.http.routers.prometheus-public.middlewares: "api-auth@docker,api-whitelist@docker"
+      traefik.http.routers.prometheus-public.middlewares: "monitoring-auth@docker,monitoring-whitelist@docker"
 
       traefik.http.services.prometheus.loadbalancer.server.port: "9090"
     volumes:
@@ -173,9 +202,9 @@ services:
       GF_SECURITY_COOKIE_SAMESITE: "lax"
 
       # Auth model: the edge is the only auth wall.
-      #   * External access via Traefik (api entrypoint OR public FQDN)
-      #     is gated by api-auth@docker (BasicAuth from API_USERS) +
-      #     api-whitelist@docker (IP whitelist from API_WHITELIST) on
+      #   * External access via Traefik (monitoring entrypoint OR public FQDN)
+      #     is gated by monitoring-auth@docker (BasicAuth from MONITORING_USERS) +
+      #     monitoring-whitelist@docker (IP whitelist from MONITORING_WHITELIST) on
       #     the grafana-local / grafana-public routers below.
       #   * Internal container-to-container traffic on the
       #     proxy-internal Docker network bypasses Traefik entirely
@@ -199,8 +228,8 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_USERS_ALLOW_ORG_CREATE: "false"
 
-      # Sub-path serving -- behind the api entrypoint at /grafana
-      GF_SERVER_ROOT_URL: "${API_BASE_URL:-http://localhost:9090}/grafana"
+      # Sub-path serving -- behind the monitoring entrypoint at /grafana
+      GF_SERVER_ROOT_URL: "${MONITORING_BASE_URL:-http://localhost:9090}/grafana"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
 
       # Anti-feature toggles
@@ -224,21 +253,21 @@ services:
       # local -- Grafana is no longer a special case.
       # Priority 200 -- catch-all admin gate, see prometheus-local above.
       traefik.http.routers.grafana-local.rule: "PathPrefix(`/grafana`)"
-      traefik.http.routers.grafana-local.entrypoints: "api"
+      traefik.http.routers.grafana-local.entrypoints: "monitoring"
       traefik.http.routers.grafana-local.service: "grafana"
       traefik.http.routers.grafana-local.priority: "200"
-      traefik.http.routers.grafana-local.middlewares: "api-auth@docker,api-whitelist@docker"
+      traefik.http.routers.grafana-local.middlewares: "monitoring-auth@docker,monitoring-whitelist@docker"
 
-      # Public router (only when API_HOST is set).
-      # Fail-closed via never-match placeholder when API_HOST unset --
+      # Public router (only when MONITORING_HOST is set).
+      # Fail-closed via never-match placeholder when MONITORING_HOST unset --
       # see prometheus-public above for the pattern rationale.
-      traefik.http.routers.grafana-public.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`) && PathPrefix(`/grafana`)"
+      traefik.http.routers.grafana-public.rule: "Host(`${MONITORING_HOST:-__monitoring_host_not_set__.invalid}`) && PathPrefix(`/grafana`)"
       traefik.http.routers.grafana-public.entrypoints: "web-secure"
       traefik.http.routers.grafana-public.service: "grafana"
       traefik.http.routers.grafana-public.tls: "true"
       traefik.http.routers.grafana-public.tls.certresolver: "letsencrypt"
       traefik.http.routers.grafana-public.priority: "300"
-      traefik.http.routers.grafana-public.middlewares: "api-auth@docker,api-whitelist@docker"
+      traefik.http.routers.grafana-public.middlewares: "monitoring-auth@docker,monitoring-whitelist@docker"
 
       traefik.http.services.grafana.loadbalancer.server.port: "3000"
     volumes:
@@ -422,7 +451,7 @@ services:
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
       - "--storage.path=/alertmanager"
-      - "--web.external-url=${API_BASE_URL:-http://localhost:9090}/alertmanager"
+      - "--web.external-url=${MONITORING_BASE_URL:-http://localhost:9090}/alertmanager"
       - "--web.route-prefix=/alertmanager"
     environment:
       TZ: ${TIME_ZONE:-Etc/UTC}
@@ -431,24 +460,24 @@ services:
       traefik.enable: "true"
       traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
 
-      # Localhost router on the api entrypoint. Priority + middleware
+      # Localhost router on the monitoring entrypoint. Priority + middleware
       # rationale identical to prometheus-local above.
       traefik.http.routers.alertmanager-local.rule: "PathPrefix(`/alertmanager`)"
-      traefik.http.routers.alertmanager-local.entrypoints: "api"
+      traefik.http.routers.alertmanager-local.entrypoints: "monitoring"
       traefik.http.routers.alertmanager-local.service: "alertmanager"
       traefik.http.routers.alertmanager-local.priority: "200"
-      traefik.http.routers.alertmanager-local.middlewares: "api-auth@docker,api-whitelist@docker"
+      traefik.http.routers.alertmanager-local.middlewares: "monitoring-auth@docker,monitoring-whitelist@docker"
 
-      # Public router (only when API_HOST is set).
-      # Fail-closed via never-match placeholder when API_HOST unset --
+      # Public router (only when MONITORING_HOST is set).
+      # Fail-closed via never-match placeholder when MONITORING_HOST unset --
       # see prometheus-public above for the pattern rationale.
-      traefik.http.routers.alertmanager-public.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`) && PathPrefix(`/alertmanager`)"
+      traefik.http.routers.alertmanager-public.rule: "Host(`${MONITORING_HOST:-__monitoring_host_not_set__.invalid}`) && PathPrefix(`/alertmanager`)"
       traefik.http.routers.alertmanager-public.entrypoints: "web-secure"
       traefik.http.routers.alertmanager-public.service: "alertmanager"
       traefik.http.routers.alertmanager-public.tls: "true"
       traefik.http.routers.alertmanager-public.tls.certresolver: "letsencrypt"
       traefik.http.routers.alertmanager-public.priority: "300"
-      traefik.http.routers.alertmanager-public.middlewares: "api-auth@docker,api-whitelist@docker"
+      traefik.http.routers.alertmanager-public.middlewares: "monitoring-auth@docker,monitoring-whitelist@docker"
 
       traefik.http.services.alertmanager.loadbalancer.server.port: "9093"
     volumes:

@@ -165,7 +165,7 @@ immediately. Switch to `rate-limit@file` (5000 req/s) or
 
 ### Symptom: 401 Unauthorized when hitting /dashboard
 
-BasicAuth credentials are wrong or `API_USERS` isn't formatted right.
+BasicAuth credentials are wrong or `MONITORING_USERS` isn't formatted right.
 
 Generate fresh:
 
@@ -173,7 +173,7 @@ Generate fresh:
 echo $(htpasswd -nB admin) | sed -e 's/\$/\$\$/g'
 ```
 
-Replace `API_USERS=...` in `.env`, then `sudo ./traefik.sh restart`.
+Replace `MONITORING_USERS=...` in `.env`, then `sudo ./traefik.sh restart`.
 
 ⚠️ The double-`$$` escaping is required because Compose expands
 single `$`. If you generated the hash without `sed` post-processing,
@@ -181,7 +181,7 @@ Compose substitutes the `$` placeholders and corrupts the hash.
 
 ### Symptom: 403 Forbidden when hitting /dashboard
 
-Your IP isn't in `API_WHITELIST`. Check your apparent source IP:
+Your IP isn't in `MONITORING_WHITELIST`. Check your apparent source IP:
 
 ```bash
 # From the workstation that's getting 403
@@ -192,7 +192,7 @@ curl -s https://api64.ipify.org  # public IPv6
 Add it to `.env`:
 
 ```env
-API_WHITELIST=127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 203.0.113.42/32
+MONITORING_WHITELIST=127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 203.0.113.42/32
 ```
 
 `sudo ./traefik.sh restart`.
@@ -219,7 +219,7 @@ docker port edgeproxy-traefik
 # Should include: 9090/tcp -> 127.0.0.1:9090
 ```
 
-If it shows `0.0.0.0:9090` instead, your `API_BIND` is set to `0.0.0.0`
+If it shows `0.0.0.0:9090` instead, your `MONITORING_BIND` is set to `0.0.0.0`
 (LAN mode) — that still works for localhost access, just listens
 elsewhere too.
 
@@ -240,13 +240,13 @@ If `GF_SERVER_ROOT_URL` doesn't end with `/grafana` or
 `GF_SERVER_SERVE_FROM_SUB_PATH=false`, edit `.env`:
 
 ```env
-API_BASE_URL=http://localhost:9090
+MONITORING_BASE_URL=http://localhost:9090
 ```
 
 Restart with `sudo ./traefik.sh restart`.
 
-If you set `API_HOST` (mode 3), the URL changes to
-`https://${API_HOST}/grafana`. Verify `API_BASE_URL=https://${API_HOST}`.
+If you set `MONITORING_HOST` (mode 3), the URL changes to
+`https://${MONITORING_HOST}/grafana`. Verify `MONITORING_BASE_URL=https://${MONITORING_HOST}`.
 
 ## Logging issues
 

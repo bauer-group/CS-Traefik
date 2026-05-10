@@ -83,7 +83,7 @@ Traefik binds these host ports:
 | `${HTTP_PORT}` (default 80) | TCP | `0.0.0.0` + `[::]` | Public HTTP |
 | `${HTTPS_PORT}` (default 443) | TCP | `0.0.0.0` + `[::]` | Public HTTPS (HTTP/1.1 + HTTP/2) |
 | `${HTTPS_PORT}` (default 443) | UDP | `0.0.0.0` + `[::]` | Public HTTPS (HTTP/3 / QUIC) |
-| `${API_PORT}` (default 9090) | TCP | `${API_BIND}` + `[${API_BIND_V6}]` | Admin entrypoint (default loopback only) |
+| `${MONITORING_PORT}` (default 9090) | TCP | `${MONITORING_BIND}` + `[${MONITORING_BIND_V6}]` | Admin entrypoint (default loopback only) |
 
 Every public port has **two** explicit bindings — one for IPv4
 (`0.0.0.0:`) and one for IPv6 (`[::]:`). This is intentional:

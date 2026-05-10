@@ -66,7 +66,7 @@ label-driven routing (which is what 99 % of stacks use):
 | --- | --- | --- |
 | `web` | `80` | `80` |
 | `web-secure` | `443` | `443` |
-| `api` (admin UI) | `9090` | `9090` |
+| `api` (legacy) / `monitoring` (v3) (admin UI) | `9090` | `9090` |
 | `metrics` (internal) | `9080` | `8082` |
 | `ping` (internal) | (n/a) | `8081` |
 
@@ -77,7 +77,7 @@ target is referenced internally in `prometheus.yml`.
 ### Default `bg-provider` is always-on
 
 Legacy stack added `X-Solution-Provider: BAUER GROUP` only on the
-api/dashboard router. CS-Traefik wires it at the **entrypoint level**
+monitoring/dashboard router. CS-Traefik wires it at the **entrypoint level**
 so EVERY public response gets the header. App stacks don't need to
 do anything.
 
@@ -193,12 +193,12 @@ What `upgrade` does, in order:
 
    | Old key | Where it goes in v3 | Notes |
    | --- | --- | --- |
-   | `API_USERS` | `API_USERS` | Verbatim (already bcrypt-escaped). |
-   | `API_WHITELIST` | `API_WHITELIST` | Verbatim (preserves your LAN CIDRs). |
+   | `MONITORING_USERS` | `MONITORING_USERS` | Verbatim (already bcrypt-escaped). |
+   | `MONITORING_WHITELIST` | `MONITORING_WHITELIST` | Verbatim (preserves your LAN CIDRs). |
    | `GRAFANA_ADMIN_PASSWORD` | same | Verbatim. |
-   | `API_PORT` | same | Migrated only if non-default (v3 default is 9090). |
+   | `MONITORING_PORT` | same | Migrated only if non-default (v3 default is 9090). |
    | `LETSENCRYPT_EMAIL` | same | Migrated only if non-default. |
-   | `API_HOST` | split: IPs -> `API_BIND`/`API_BIND_V6`=0.0.0.0/:: | v2's HostRegexp pattern is split: IP parts trigger all-interface bind (preserves v2 0.0.0.0 behaviour AND loopback access); hostname is logged but NOT migrated to v3 `API_HOST` (v3 API_HOST is for mode-3 public-FQDN-with-LE only -- internal hostnames don't qualify). |
+   | `MONITORING_HOST` | split: IPs -> `MONITORING_BIND`/`MONITORING_BIND_V6`=0.0.0.0/:: | v2's HostRegexp pattern is split: IP parts trigger all-interface bind (preserves v2 0.0.0.0 behaviour AND loopback access); hostname is logged but NOT migrated to v3 `MONITORING_HOST` (v3 MONITORING_HOST is for mode-3 public-FQDN-with-LE only -- internal hostnames don't qualify). |
    | (none) | `COMPOSE_PROFILES=monitoring` | Upgrade default. |
 
 10. **Migrate ACME certs** by calling `traefik.sh migrate-acme` on

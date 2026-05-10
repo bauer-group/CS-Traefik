@@ -1,14 +1,26 @@
 # =============================================================================
 # CS-Traefik - Core Stack (Traefik v3 reverse proxy)
 # =============================================================================
-# This is the always-on baseline. Optional features live in separate
-# overlays that traefik.sh loads on demand:
-#   docker-compose.monitoring.yml   -> Prometheus / Grafana / Loki / ...
+# This is the always-on baseline -- pure reverse proxy on ports 80/443.
+# Optional features live in separate overlays that traefik.sh loads on
+# demand:
+#   docker-compose.monitoring.yml   -> Prometheus / Grafana / Loki /
+#                                      Promtail / Alertmanager / node-
+#                                      exporter / cAdvisor PLUS the
+#                                      host-port binding for the admin
+#                                      monitoring entrypoint (default
+#                                      127.0.0.1:9090). The dashboard
+#                                      surface and the monitoring stack
+#                                      ship together -- without this
+#                                      profile, port 9090 is unbound
+#                                      on the host.
 #   docker-compose.auto-update.yml  -> Watchtower
 #
 # Direct usage (without traefik.sh):
-#   docker compose up -d
-#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#   docker compose up -d                                       # pure proxy
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.monitoring.yml \
+#                  --profile monitoring up -d                  # full stack
 #
 # COMPATIBILITY NOTES (vs. legacy EDGEPROXY v2 stack):
 #   - Entrypoints are named `web` and `web-secure` (with hyphen) -- IDENTICAL
@@ -16,8 +28,10 @@
 #     working without modification.
 #   - The default cert resolver is `letsencrypt` (TLS-ALPN-01) -- IDENTICAL.
 #   - The public network defaults to ${NETWORK_NAME:-EDGEPROXY} -- IDENTICAL.
-#   - Admin UIs (dashboard) live on the dedicated `api` entrypoint, NOT on
-#     port 443 (matches the legacy localhost:9090 pattern).
+#   - Admin UIs (dashboard) live on the dedicated `monitoring` entrypoint, NOT on
+#     port 443 (matches the legacy localhost:9090 pattern). The host-port
+#     binding for that entrypoint now lives in the monitoring overlay --
+#     pure-proxy installs no longer expose 9090 on the host at all.
 # =============================================================================
 
 name: ${STACK_NAME:-edgeproxy}
@@ -86,16 +100,16 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
       # =========================================================================
-      # Dashboard router -- on the dedicated `api` entrypoint, NEVER on 443.
+      # Dashboard router -- on the dedicated `monitoring` entrypoint, NEVER on 443.
       # =========================================================================
-      # The api entrypoint binds to ${API_BIND:-127.0.0.1}:${API_PORT:-9090}
+      # The monitoring entrypoint binds to ${MONITORING_BIND:-127.0.0.1}:${MONITORING_PORT:-9090}
       # (see ports section) so by default the dashboard is reachable ONLY
       # via the Docker host's loopback. SSH-tunnel for remote access:
       #   ssh -L 9090:127.0.0.1:9090 user@server
       #   then open http://127.0.0.1:9090/dashboard/
       #
-      # To also expose admin UIs on a public FQDN (https://${API_HOST}/),
-      # set API_HOST in .env -- a second router on web-secure activates
+      # To also expose admin UIs on a public FQDN (https://${MONITORING_HOST}/),
+      # set MONITORING_HOST in .env -- a second router on web-secure activates
       # automatically (BasicAuth + IP whitelist enforced).
       traefik.enable: "true"
       traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}"
@@ -109,10 +123,10 @@ services:
       # explicit priorities on every admin-related router so future edits
       # cannot shadow each other unexpectedly.
       #
-      #   dashboard-internal     300   intercepts proxy-internal CIDRs on `api`
+      #   dashboard-internal     300   intercepts proxy-internal CIDRs on `monitoring`
       #   dashboard-public       300   admin FQDN on `web-secure` (mode 3)
       #   dashboard-public-http  300   admin FQDN on `web` (HTTP -> HTTPS redirect)
-      #   dashboard-local        200   catch-all admin gate on `api` (BasicAuth + whitelist)
+      #   dashboard-local        200   catch-all admin gate on `monitoring` (BasicAuth + whitelist)
       #
       # Why 300 / 200 instead of e.g. 200 / 1?
       #
@@ -121,7 +135,7 @@ services:
       # PathPrefix(\`/api\`) && Method(\`GET\`,\`POST\`) && Headers(...)`
       # rule lands somewhere around 100-150. The catch-all admin gate
       # MUST sit above this implicit max, otherwise an app accidentally
-      # added on the `api` entrypoint with a long rule could outrank it
+      # added on the `monitoring` entrypoint with a long rule could outrank it
       # and bypass BasicAuth + whitelist. Priority 200 gives a 50-point
       # safety margin.
       #
@@ -134,7 +148,7 @@ services:
       #   * 200 = "fallback admin gate, beats any app"
       #   * 1 ... ~150 = "everything else (apps, implicit-scored)"
       #
-      # New routers on the api entrypoint that should take precedence over
+      # New routers on the monitoring entrypoint that should take precedence over
       # dashboard-local need priority >= 250. Fully-controlled override
       # cases (test routers, debug-only paths) can use 400+ to beat even
       # the intercepts.
@@ -148,46 +162,46 @@ services:
       # theatre AND create an operational footgun (operators forgetting
       # credentials in monitoring containers).
       #
-      # Hardcoded CIDRs (NOT taken from API_WHITELIST): the internal
+      # Hardcoded CIDRs (NOT taken from MONITORING_WHITELIST): the internal
       # subnet ranges are fixed by the network: definition at the
       # bottom of this file (100.64.0.0/16 + fdff:100:64::/64) -- they
-      # are infrastructure constants, not policy. API_WHITELIST is for
+      # are infrastructure constants, not policy. MONITORING_WHITELIST is for
       # EXTERNAL access policy only. This split prevents an over-
-      # restrictive API_WHITELIST from accidentally locking the
+      # restrictive MONITORING_WHITELIST from accidentally locking the
       # monitoring stack out of the admin surface.
       # Path(`/`) is included so the dashboard-redirect middleware below can
       # see bare-host requests and 302 them to /dashboard/. Without it, the
       # router never matches `/` and Traefik returns its built-in 404 before
       # any middleware runs.
       traefik.http.routers.dashboard-internal.rule: "(Path(`/`) || PathPrefix(`/api`) || PathPrefix(`/dashboard`)) && (ClientIP(`100.64.0.0/16`) || ClientIP(`fdff:100:64::/64`))"
-      traefik.http.routers.dashboard-internal.entrypoints: "api"
+      traefik.http.routers.dashboard-internal.entrypoints: "monitoring"
       traefik.http.routers.dashboard-internal.service: "api@internal"
       traefik.http.routers.dashboard-internal.priority: "300"
       traefik.http.routers.dashboard-internal.middlewares: "dashboard-redirect"
 
-      # ---- Localhost dashboard (BasicAuth + IP whitelist, on `api` entrypoint) ----
-      # Catches everything else on the api entrypoint -- operator access via
-      # SSH tunnel to host loopback. BasicAuth + API_WHITELIST gate apply.
+      # ---- Localhost dashboard (BasicAuth + IP whitelist, on `monitoring` entrypoint) ----
+      # Catches everything else on the monitoring entrypoint -- operator access via
+      # SSH tunnel to host loopback. BasicAuth + MONITORING_WHITELIST gate apply.
       # Internal-network requests are intercepted by dashboard-internal above
       # before they reach this router.
       #
       # Priority 200 = "catch-all admin gate, beats any app." Sits above
       # the implicit-priority max (~150) of even the most specific
-      # default-scored app rule. Any app accidentally exposed on the `api`
+      # default-scored app rule. Any app accidentally exposed on the `monitoring`
       # entrypoint cannot bypass the BasicAuth + whitelist gate just by
       # having a long rule string. Override only with explicit priority
       # >= 250 if you really mean to.
       # Path(`/`) -- see dashboard-internal rule above. Bare host needs to
       # reach the dashboard-redirect middleware to land on /dashboard/.
       traefik.http.routers.dashboard-local.rule: "Path(`/`) || PathPrefix(`/api`) || PathPrefix(`/dashboard`)"
-      traefik.http.routers.dashboard-local.entrypoints: "api"
+      traefik.http.routers.dashboard-local.entrypoints: "monitoring"
       traefik.http.routers.dashboard-local.service: "api@internal"
       traefik.http.routers.dashboard-local.priority: "200"
-      traefik.http.routers.dashboard-local.middlewares: "api-auth,api-whitelist,dashboard-redirect"
+      traefik.http.routers.dashboard-local.middlewares: "monitoring-auth,monitoring-whitelist,dashboard-redirect"
 
-      # ---- Public dashboard (only when API_HOST is set in .env) ----
-      # Fail-closed when API_HOST is unset: the rule resolves to
-      # `Host(\`__api_host_not_set__.invalid\`)`, which never matches any
+      # ---- Public dashboard (only when MONITORING_HOST is set in .env) ----
+      # Fail-closed when MONITORING_HOST is unset: the rule resolves to
+      # `Host(\`__monitoring_host_not_set__.invalid\`)`, which never matches any
       # real client request because `.invalid` is RFC 2606 reserved and
       # cannot resolve in DNS. The router is technically active but
       # unreachable -- exactly the desired "mode-3 disabled" state.
@@ -207,39 +221,39 @@ services:
       # Path(`/`) -- same reason as dashboard-internal/local above. Host()
       # still scopes the match to the admin FQDN; only `/` requests for that
       # exact host get the redirect.
-      traefik.http.routers.dashboard-public.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`) && (Path(`/`) || PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      traefik.http.routers.dashboard-public.rule: "Host(`${MONITORING_HOST:-__monitoring_host_not_set__.invalid}`) && (Path(`/`) || PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
       traefik.http.routers.dashboard-public.entrypoints: "web-secure"
       traefik.http.routers.dashboard-public.service: "api@internal"
       traefik.http.routers.dashboard-public.tls: "true"
       traefik.http.routers.dashboard-public.tls.certresolver: "letsencrypt"
       traefik.http.routers.dashboard-public.priority: "300"
-      traefik.http.routers.dashboard-public.middlewares: "api-auth,api-whitelist,dashboard-redirect"
+      traefik.http.routers.dashboard-public.middlewares: "monitoring-auth,monitoring-whitelist,dashboard-redirect"
 
-      # ---- Public dashboard HTTP redirect (only when API_HOST is set) ----
+      # ---- Public dashboard HTTP redirect (only when MONITORING_HOST is set) ----
       # Admin FQDN should always be HTTPS-only -- accept HTTP only to send
       # a 301 to HTTPS. The IP whitelist is applied here too, so even the
       # redirect itself isn't visible to non-whitelisted clients.
       # No global entrypoint redirect: app stacks decide per-router.
       #
-      # Same fail-closed pattern as dashboard-public above: when API_HOST
-      # is unset, the rule becomes `Host(\`__api_host_not_set__.invalid\`)`
+      # Same fail-closed pattern as dashboard-public above: when MONITORING_HOST
+      # is unset, the rule becomes `Host(\`__monitoring_host_not_set__.invalid\`)`
       # which cannot match any real client request.
       #
       # Priority 300 -- same FQDN-shadow protection as dashboard-public.
-      traefik.http.routers.dashboard-public-http.rule: "Host(`${API_HOST:-__api_host_not_set__.invalid}`)"
+      traefik.http.routers.dashboard-public-http.rule: "Host(`${MONITORING_HOST:-__monitoring_host_not_set__.invalid}`)"
       traefik.http.routers.dashboard-public-http.entrypoints: "web"
       traefik.http.routers.dashboard-public-http.service: "api@internal"
       traefik.http.routers.dashboard-public-http.priority: "300"
-      traefik.http.routers.dashboard-public-http.middlewares: "api-whitelist,https-redirect@file"
+      traefik.http.routers.dashboard-public-http.middlewares: "monitoring-whitelist,https-redirect@file"
 
       # ---- Middlewares used by both routers above ----
       # Defined here (not in dynamic/middlewares.yml) so they pick up
-      # ${DASHBOARD_USERS} / ${API_WHITELIST} from .env via Compose
+      # ${DASHBOARD_USERS} / ${MONITORING_WHITELIST} from .env via Compose
       # substitution -- one source of truth.
-      traefik.http.middlewares.api-whitelist.ipallowlist.sourcerange: "${API_WHITELIST:-127.0.0.1/32, ::1/128}"
-      traefik.http.middlewares.api-auth.basicauth.users: "${API_USERS:-}"
-      traefik.http.middlewares.api-auth.basicauth.realm: "CS-Traefik Admin"
-      traefik.http.middlewares.api-auth.basicauth.removeheader: "true"
+      traefik.http.middlewares.monitoring-whitelist.ipallowlist.sourcerange: "${MONITORING_WHITELIST:-127.0.0.1/32, ::1/128}"
+      traefik.http.middlewares.monitoring-auth.basicauth.users: "${MONITORING_USERS:-}"
+      traefik.http.middlewares.monitoring-auth.basicauth.realm: "CS-Traefik Admin"
+      traefik.http.middlewares.monitoring-auth.basicauth.removeheader: "true"
       # Redirect bare / to /dashboard/ for convenience.
       traefik.http.middlewares.dashboard-redirect.redirectregex.regex: "^https?://[^/]+/?$$"
       traefik.http.middlewares.dashboard-redirect.redirectregex.replacement: "/dashboard/"
@@ -474,16 +488,19 @@ services:
       - "0.0.0.0:${HTTPS_PORT:-443}:443/udp"
       - "[::]:${HTTPS_PORT:-443}:443/udp"
 
-      # ---- Admin api entrypoint -- bound LOCALLY by default ----------------
-      # API_BIND (IPv4) and API_BIND_V6 (IPv6) default to loopback only
-      # (127.0.0.1 + ::1). Both ALWAYS bind so SSH-tunnel access from
-      # either stack works. To expose on the LAN, set BOTH:
-      #   API_BIND=0.0.0.0
-      #   API_BIND_V6=::
-      # Even then, BasicAuth + IP whitelist gate access. For full public
-      # exposure with TLS, prefer API_HOST + the web-secure router.
-      - "${API_BIND:-127.0.0.1}:${API_PORT:-9090}:9090/tcp"
-      - "[${API_BIND_V6:-::1}]:${API_PORT:-9090}:9090/tcp"
+      # ---- Admin monitoring entrypoint host-port binding -- moved out -------------
+      # The 127.0.0.1:9090 host-port mapping lives in
+      # docker-compose.monitoring.yml so pure-proxy installs do not
+      # expose 9090 on the host at all. The monitoring entrypoint itself stays
+      # defined in config/traefik/traefik.yml (`monitoring: address:
+      # ":9090/tcp"`) -- it keeps listening inside the container, so
+      # internal traffic on the proxy-internal network (e.g. monitoring
+      # scrapes hitting `traefik:9090`) still works regardless of the
+      # host binding.
+      #
+      # Bottom line: COMPOSE_PROFILES=monitoring -> 9090 bound;
+      # otherwise 9090 is internal-only. There is no separate overlay
+      # to manage -- one profile, one decision.
     volumes:
       # Read-only socket. Promote to docker-socket-proxy if the threat
       # model demands it -- the dashboard is already auth-gated.

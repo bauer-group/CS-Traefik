@@ -18,7 +18,7 @@ install -- this directory holds the in-depth material.
 | --- | --- |
 | [`networking.md`](networking.md) | EDGEPROXY public + EDGEPROXY-INTERNAL networks, IPv4/IPv6 dual-stack, port assignments, when to override. |
 | [`tls-and-certificates.md`](tls-and-certificates.md) | Let's Encrypt resolvers (HTTP-01 / TLS-ALPN-01 / DNS-01), 24+ DNS providers, manual / corporate-CA certificates, mTLS, TLS-options profiles. |
-| [`admin-access.md`](admin-access.md) | The `api` entrypoint, three access modes (localhost / LAN / public FQDN), BasicAuth + IP whitelist. |
+| [`admin-access.md`](admin-access.md) | The `monitoring` entrypoint, three access modes (localhost / LAN / public FQDN), BasicAuth + IP whitelist. |
 
 ## Routing & policy
 

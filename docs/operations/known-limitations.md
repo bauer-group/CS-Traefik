@@ -91,7 +91,7 @@ BasicAuth credentials. SSH-tunnelling to a real Linux deployment
 works correctly because the source IP IS 127.0.0.1 there.
 
 Workaround for local development: temporarily add `100.65.0.0/16` to
-`API_WHITELIST` in your local `.env`. Do NOT commit this change --
+`MONITORING_WHITELIST` in your local `.env`. Do NOT commit this change --
 it is platform-specific debug aid, not a production policy.
 
 ## Areas not exercised in the local validation pass

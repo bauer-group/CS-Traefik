@@ -6,9 +6,9 @@ semantics, and the side-effects of changing it.
 The shipped [`.env.example`](../.env.example) uses a dual layout:
 
 - **Active (uncommented)** — values without a sensible default
-  (`API_USERS`), stability pins (`STACK_NAME`, `NETWORK_NAME`,
+  (`MONITORING_USERS`), stability pins (`STACK_NAME`, `NETWORK_NAME`,
   `DATA_DIRECTORY`, `COMPOSE_PROFILES`), and security-baseline
-  overrides (`API_WHITELIST` set to localhost-only). These ship
+  overrides (`MONITORING_WHITELIST` set to localhost-only). These ship
   enabled and apply to every deployment.
 - **Commented out** — every other configurable variable, with its
   default value and a brief description. Uncomment the lines you
@@ -56,21 +56,21 @@ Values:
 | `WEB_WRITE_TIMEOUT` | `0s` | Max time to write a response. `0s` = unlimited (required for SSE / streaming). |
 | `WEB_IDLE_TIMEOUT` | `300s` | Idle keepalive timeout. 5 min covers most WebSocket apps without aggressive heartbeats. Bump to `600s` for IoT / MQTT-over-WS; lower to `60s` for memory-tight setups. |
 
-## Admin access (`api` entrypoint)
+## Admin access (`monitoring` entrypoint)
 
 The Traefik dashboard, Grafana, Prometheus, and Alertmanager are
-reached via path-prefix routing on a dedicated `api` entrypoint.
-**Never** on the public 443 port unless you set `API_HOST`.
+reached via path-prefix routing on a dedicated `monitoring` entrypoint.
+**Never** on the public 443 port unless you set `MONITORING_HOST`.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `API_PORT` | `9090` | Internal port for the admin entrypoint. Any free port. |
-| `API_BIND` | `127.0.0.1` | IPv4 bind interface. `127.0.0.1` = loopback only (default, most secure). `0.0.0.0` = LAN-accessible. |
-| `API_BIND_V6` | `::1` | IPv6 bind. Set to `::` for LAN-accessible IPv6. Always set in lock-step with `API_BIND`. |
-| `API_HOST` | *(empty)* | Optional FQDN for HTTPS-on-443 admin access. **Pick a hostname that hosts no application** (e.g. `admin.bauer-group.com`). |
-| `API_BASE_URL` | `http://localhost:9090` | Used by Grafana / Prometheus / Alertmanager to build self-links. Set to `https://${API_HOST}` if `API_HOST` is set. |
-| `API_WHITELIST` | `127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12` | IP whitelist (CIDRs). Always enforced for admin surfaces. |
-| `API_USERS` | `admin/admin` (bcrypt) | htpasswd format with bcrypt. Generate via `echo $(htpasswd -nB admin) \| sed -e 's/\$/\$\$/g'`. **Change the default before exposing**. |
+| `MONITORING_PORT` | `9090` | Internal port for the admin entrypoint. Any free port. |
+| `MONITORING_BIND` | `127.0.0.1` | IPv4 bind interface. `127.0.0.1` = loopback only (default, most secure). `0.0.0.0` = LAN-accessible. |
+| `MONITORING_BIND_V6` | `::1` | IPv6 bind. Set to `::` for LAN-accessible IPv6. Always set in lock-step with `MONITORING_BIND`. |
+| `MONITORING_HOST` | *(empty)* | Optional FQDN for HTTPS-on-443 admin access. **Pick a hostname that hosts no application** (e.g. `admin.bauer-group.com`). |
+| `MONITORING_BASE_URL` | `http://localhost:9090` | Used by Grafana / Prometheus / Alertmanager to build self-links. Set to `https://${MONITORING_HOST}` if `MONITORING_HOST` is set. |
+| `MONITORING_WHITELIST` | `127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12` | IP whitelist (CIDRs). Always enforced for admin surfaces. |
+| `MONITORING_USERS` | `admin/admin` (bcrypt) | htpasswd format with bcrypt. Generate via `echo $(htpasswd -nB admin) \| sed -e 's/\$/\$\$/g'`. **Change the default before exposing**. |
 
 See [`admin-access.md`](admin-access.md) for the three usage modes
 (localhost / LAN / public FQDN).
@@ -129,7 +129,7 @@ passes them through automatically).
 | `ALERTMANAGER_IMAGE_TAG` | `latest` | |
 | `CADVISOR_IMAGE_TAG` | `latest` | |
 | `NODE_EXPORTER_IMAGE_TAG` | `latest` | |
-| `GRAFANA_ADMIN_USER` | `admin` | Grafana's own admin user (separate from `API_USERS`). |
+| `GRAFANA_ADMIN_USER` | `admin` | Grafana's own admin user (separate from `MONITORING_USERS`). |
 | `GRAFANA_ADMIN_PASSWORD` | `changeme` | **Change before exposing**. |
 | `GRAFANA_PLUGINS` | *(empty)* | Comma-separated list of Grafana plugins installed on first start. |
 | `PROMETHEUS_RETENTION_TIME` | `30d` | Whichever (time or size) hits first wins. |
@@ -206,7 +206,7 @@ override:
 - TLS minimum version, cipher list — controlled in
   [`config/traefik/dynamic/tls.yml`](../config/traefik/dynamic/tls.yml).
   See [`tls-and-certificates.md`](tls-and-certificates.md).
-- The router-priority hierarchy and the `__api_host_not_set__.invalid`
+- The router-priority hierarchy and the `__monitoring_host_not_set__.invalid`
   placeholder are hardcoded in `docker-compose.yml` -- they are
   infrastructure constants, not policy. See
   [`admin-access.md`](admin-access.md) for the rationale.

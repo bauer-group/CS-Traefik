@@ -19,7 +19,7 @@ For deep documentation see [`docs/`](docs/).
   resolver `letsencrypt`. Existing app stacks attach without
   modification — see
   [`docs/operations/migration-from-v2.md`](docs/operations/migration-from-v2.md).
-- **Hardened admin access**: dedicated `api` entrypoint on
+- **Hardened admin access**: dedicated `monitoring` entrypoint on
   `127.0.0.1:9090` by default. Three modes: localhost-only / LAN /
   public FQDN over HTTPS. BasicAuth + IP whitelist always enforced.
   See [`docs/admin-access.md`](docs/admin-access.md).

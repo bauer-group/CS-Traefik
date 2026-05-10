@@ -16,15 +16,15 @@ Traefik:
 
 | Service | Role | Reachable | Data |
 | --- | --- | --- | --- |
-| **Prometheus** | Metrics TSDB + scraper | api/`/prometheus` | `${DATA_DIRECTORY}/prometheus/` |
-| **Grafana** | Visualisation UI | api/`/grafana` | `${DATA_DIRECTORY}/grafana/` |
+| **Prometheus** | Metrics TSDB + scraper | monitoring/`/prometheus` | `${DATA_DIRECTORY}/prometheus/` |
+| **Grafana** | Visualisation UI | monitoring/`/grafana` | `${DATA_DIRECTORY}/grafana/` |
 | **Loki** | Log aggregator | internal-only | `${DATA_DIRECTORY}/loki/` |
 | **Promtail** | Log shipper | internal-only | `${DATA_DIRECTORY}/promtail/` |
-| **Alertmanager** | Alert routing | api/`/alertmanager` | `${DATA_DIRECTORY}/alertmanager/` |
+| **Alertmanager** | Alert routing | monitoring/`/alertmanager` | `${DATA_DIRECTORY}/alertmanager/` |
 | **node-exporter** | Host metrics | internal-only | (none -- reads `/proc`, `/sys`) |
 | **cAdvisor** | Container metrics | internal-only | (none -- reads cgroups) |
 
-All admin UIs sit behind the `api` entrypoint with BasicAuth + IP
+All admin UIs sit behind the `monitoring` entrypoint with BasicAuth + IP
 whitelist (see [`admin-access.md`](admin-access.md)).
 
 ## Data flows
@@ -84,7 +84,7 @@ PROMETHEUS_RETENTION_SIZE=8GB   # whichever hits first wins
 ```
 
 **Web UI**: `http://127.0.0.1:9090/prometheus/` (or
-`https://${API_HOST}/prometheus/` in mode 3). Useful for ad-hoc PromQL
+`https://${MONITORING_HOST}/prometheus/` in mode 3). Useful for ad-hoc PromQL
 queries during debugging — Grafana is the long-form query interface.
 
 **Resource cap**: 1 CPU / 1 GB RAM by default — small-host-safe (8 GB /
@@ -141,8 +141,8 @@ Want the standard community dashboards too? Import via Grafana UI:
 - Alertmanager (UID: `alertmanager`) — `http://alertmanager:9093/alertmanager`
   (sub-path because Alertmanager runs with `--web.route-prefix=/alertmanager`).
 
-**Grafana login**: disabled by default — the api-entrypoint BasicAuth
-(`api-auth@docker` + `api-whitelist@docker`, same chain as Prometheus
+**Grafana login**: disabled by default — the monitoring-entrypoint BasicAuth
+(`monitoring-auth@docker` + `monitoring-whitelist@docker`, same chain as Prometheus
 and Alertmanager) is the single auth wall. Anonymous role is `Admin`,
 so anyone past the edge gets full edit rights without a second login.
 `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` in `.env` still seed

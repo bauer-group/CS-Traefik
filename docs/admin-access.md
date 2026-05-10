@@ -1,7 +1,7 @@
 # Admin Access
 
 The Traefik dashboard, Grafana, Prometheus, and Alertmanager are
-reached through a dedicated `api` entrypoint — never on the public 443
+reached through a dedicated `monitoring` entrypoint — never on the public 443
 port unless you explicitly opt in.
 
 ## TL;DR
@@ -16,25 +16,54 @@ http://127.0.0.1:9090/prometheus/     # Prometheus
 http://127.0.0.1:9090/alertmanager/   # Alertmanager
 ```
 
-BasicAuth (`API_USERS`) + IP whitelist (`API_WHITELIST`) are always
+BasicAuth (`MONITORING_USERS`) + IP whitelist (`MONITORING_WHITELIST`) are always
 enforced — defence-in-depth even on loopback.
+
+## When is port 9090 actually bound?
+
+The host-port binding for `monitoring` (`127.0.0.1:9090` by default) lives
+inside `docker-compose.monitoring.yml`, not in the base
+`docker-compose.yml`. The reasoning: the only externally-visible
+reason to bind 9090 is to reach Grafana / Prometheus / Alertmanager,
+which are themselves part of the monitoring overlay. The Traefik
+dashboard rides on the same entrypoint, so it ships together with
+that bundle.
+
+Bottom line — the `monitoring` profile owns the 9090 binding:
+
+| `COMPOSE_PROFILES` value      | Host port 9090 bound? |
+| ----------------------------- | --------------------- |
+| _(empty — pure proxy)_        | No                    |
+| `auto-update`                 | No                    |
+| `monitoring`                  | Yes                   |
+| `monitoring,auto-update`      | Yes                   |
+
+The `monitoring` entrypoint itself is always defined inside Traefik
+(`config/traefik/traefik.yml`: `monitoring: address: ":9090/tcp"`). It
+listens within the container regardless of host binding, so other
+containers on the proxy-internal Docker network can still reach
+`traefik:9090` directly via Docker DNS.
+
+Mode 3 (public FQDN — see below) is independent of this. Admin UIs
+in mode 3 are reached via port 443 with `Host(${MONITORING_HOST})`, which
+is part of the base stack and works without the monitoring overlay.
 
 ## The three modes
 
-`API_BIND` and `API_BIND_V6` in `.env` control where the api
-entrypoint listens. Pick the mode that matches your operational
+`MONITORING_BIND` and `MONITORING_BIND_V6` in `.env` control where the
+`monitoring` entrypoint listens. Pick the mode that matches your operational
 context.
 
 ### Mode 1 — Localhost only (DEFAULT, most secure)
 
 ```env
-API_BIND=127.0.0.1
-API_BIND_V6=::1
-API_HOST=
-API_BASE_URL=http://localhost:9090
+MONITORING_BIND=127.0.0.1
+MONITORING_BIND_V6=::1
+MONITORING_HOST=
+MONITORING_BASE_URL=http://localhost:9090
 ```
 
-The api entrypoint binds only to loopback. The dashboard is
+The monitoring entrypoint binds only to loopback. The dashboard is
 **invisible** from the public internet, the LAN, or any other host.
 Connect via SSH-tunnel:
 
@@ -57,13 +86,13 @@ already have everything they need.
 ### Mode 2 — LAN-accessible
 
 ```env
-API_BIND=0.0.0.0
-API_BIND_V6=::
-API_HOST=
-API_BASE_URL=http://localhost:9090
+MONITORING_BIND=0.0.0.0
+MONITORING_BIND_V6=::
+MONITORING_HOST=
+MONITORING_BASE_URL=http://localhost:9090
 ```
 
-The api entrypoint binds to all interfaces. Reachable on
+The monitoring entrypoint binds to all interfaces. Reachable on
 `http://<host-ip>:9090/...` from any network the Docker host is on.
 BasicAuth + IP whitelist still enforced; no TLS on this entrypoint.
 
@@ -83,18 +112,18 @@ private FQDN that resolves to the LAN IP.
 ### Mode 3 — Public FQDN over HTTPS
 
 ```env
-API_BIND=127.0.0.1
-API_BIND_V6=::1
-API_HOST=admin.bauer-group.com
-API_BASE_URL=https://admin.bauer-group.com
+MONITORING_BIND=127.0.0.1
+MONITORING_BIND_V6=::1
+MONITORING_HOST=admin.bauer-group.com
+MONITORING_BASE_URL=https://admin.bauer-group.com
 ```
 
 In addition to the localhost bind, a second router on `web-secure`
 activates with:
 
 - Let's Encrypt TLS for `admin.bauer-group.com`
-- BasicAuth (`API_USERS`)
-- IP whitelist (`API_WHITELIST`)
+- BasicAuth (`MONITORING_USERS`)
+- IP whitelist (`MONITORING_WHITELIST`)
 - Auto HTTP→HTTPS redirect (a separate router on `web` matches the
   same FQDN and redirects to HTTPS; the IP whitelist is applied to
   the redirect too, so non-whitelisted clients see 403 not 301 —
@@ -121,7 +150,7 @@ Cons:
   reachable.
 
 **Important constraint**: pick a hostname that hosts **no** application
-(e.g. `admin.bauer-group.com`). The bare `Host(${API_HOST})` rule on
+(e.g. `admin.bauer-group.com`). The bare `Host(${MONITORING_HOST})` rule on
 the redirect router catches all paths under the FQDN — if you point
 this at a hostname that's also serving an app, the admin redirect
 router would steal traffic from the app's HTTP router.
@@ -133,14 +162,14 @@ mode 3 *adds* the public FQDN on top. SSH-tunnel access keeps working.
 
 Mode 1 + 2 + 3 all enforce **two** auth layers:
 
-1. **IP whitelist** (`api-whitelist@docker` middleware). Source IP
-   must be in `API_WHITELIST`. Otherwise: `403 Forbidden`.
-2. **BasicAuth** (`api-auth@docker` middleware). Valid
-   username + password from `API_USERS`. Otherwise: `401
+1. **IP whitelist** (`monitoring-whitelist@docker` middleware). Source IP
+   must be in `MONITORING_WHITELIST`. Otherwise: `403 Forbidden`.
+2. **BasicAuth** (`monitoring-auth@docker` middleware). Valid
+   username + password from `MONITORING_USERS`. Otherwise: `401
    Unauthorized` with a `WWW-Authenticate: Basic realm="..."` prompt.
 
 Grafana uses the same edge auth chain as Prometheus / Alertmanager
-(`api-auth@docker,api-whitelist@docker`). Grafana's own login UI is
+(`monitoring-auth@docker,monitoring-whitelist@docker`). Grafana's own login UI is
 disabled (`GF_AUTH_BASIC_ENABLED=false`,
 `GF_AUTH_DISABLE_LOGIN_FORM=true`); the anonymous role is Admin so the
 BasicAuth credential is the single auth identity. `GRAFANA_ADMIN_USER`
@@ -155,16 +184,16 @@ for human access only.
 
 ## Two-router model: internal vs external
 
-The admin surface is exposed through **two routers** on the same `api`
+The admin surface is exposed through **two routers** on the same `monitoring`
 entrypoint, evaluated by Traefik in priority order. Only one of them
 applies to any given request, depending on the source IP:
 
 | Router | Priority | Source-IP rule | Auth required? | Whitelist? | Used by |
 | --- | --- | --- | --- | --- | --- |
 | `dashboard-internal` | 300 | `ClientIP(100.64.0.0/16)` OR `ClientIP(fdff:100:64::/64)` | **No** | **No** | Monitoring stack containers on the EDGEPROXY-INTERNAL Docker network |
-| `dashboard-public` | 300 | `Host(${API_HOST})` on `web-secure` | **BasicAuth** | **`API_WHITELIST`** | Mode-3 only -- public-FQDN access over HTTPS |
-| `dashboard-public-http` | 300 | `Host(${API_HOST})` on `web` | (redirect only) | **`API_WHITELIST`** | Mode-3 only -- HTTP -> HTTPS redirect for the admin FQDN |
-| `dashboard-local` | 200 (catch-all) | Everything else | **BasicAuth** | **`API_WHITELIST`** | Operators via host loopback / SSH tunnel |
+| `dashboard-public` | 300 | `Host(${MONITORING_HOST})` on `web-secure` | **BasicAuth** | **`MONITORING_WHITELIST`** | Mode-3 only -- public-FQDN access over HTTPS |
+| `dashboard-public-http` | 300 | `Host(${MONITORING_HOST})` on `web` | (redirect only) | **`MONITORING_WHITELIST`** | Mode-3 only -- HTTP -> HTTPS redirect for the admin FQDN |
+| `dashboard-local` | 200 (catch-all) | Everything else | **BasicAuth** | **`MONITORING_WHITELIST`** | Operators via host loopback / SSH tunnel |
 
 All four admin routers carry **explicit priorities**, not Traefik's
 default rule-length scoring. Implicit scoring is deterministic but
@@ -182,42 +211,42 @@ edits cannot shadow each other unexpectedly.
 - **200** = "catch-all admin gate, beats any app." Sits above the
   realistic implicit-priority maximum (~150 for typical apps with
   Host + Path + Method + Headers rules), so an app accidentally
-  exposed on the `api` entrypoint cannot bypass the BasicAuth +
+  exposed on the `monitoring` entrypoint cannot bypass the BasicAuth +
   whitelist gate by having a long rule.
 - **1 ... ~150** = "everything else." Apps either run with implicit
   scoring (rule-length-based) or set their own explicit priority.
 
-Adding a new router on the `api` entrypoint that should take
+Adding a new router on the `monitoring` entrypoint that should take
 precedence over `dashboard-local` (e.g. an additional internal
 intercept): priority >= 250. Fully-controlled overrides that need
 to beat even the intercepts (test routers, debug paths): 400+.
 
-### Fail-closed for unset `API_HOST`
+### Fail-closed for unset `MONITORING_HOST`
 
-When `API_HOST` is empty in `.env` (the default — modes 1 and 2),
+When `MONITORING_HOST` is empty in `.env` (the default — modes 1 and 2),
 the public-FQDN routers must NOT match any real traffic. The
-naive `${API_HOST:+...}` shell pattern *appears* to do this — when
+naive `${MONITORING_HOST:+...}` shell pattern *appears* to do this — when
 the variable is empty, the rule string evaluates to empty — but
 Traefik then falls back to the docker provider's auto-generated
 default rule, and the router silently activates against the
 container's name.
 
-The actual fail-closed pattern uses `${API_HOST:-fallback}` with
+The actual fail-closed pattern uses `${MONITORING_HOST:-fallback}` with
 a never-match placeholder:
 
 ```yaml
 traefik.http.routers.dashboard-public.rule:
-  Host(`${API_HOST:-__api_host_not_set__.invalid}`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))
+  Host(`${MONITORING_HOST:-__monitoring_host_not_set__.invalid}`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))
 ```
 
-When `API_HOST` is set, the rule expands to the real FQDN. When
+When `MONITORING_HOST` is set, the rule expands to the real FQDN. When
 unset, it expands to a Host rule pointing at the literal string
-`__api_host_not_set__.invalid`. RFC 2606 reserves the `.invalid`
+`__monitoring_host_not_set__.invalid`. RFC 2606 reserves the `.invalid`
 TLD — no DNS entry for any `.invalid` host can ever exist, so no
 real client request will arrive with a matching Host header. The
 placeholder name itself also serves as documentation: an operator
 who sees this rule in the dashboard knows immediately that they
-should set `API_HOST`
+should set `MONITORING_HOST`
 in `.env` to enable mode 3.
 
 The pattern is contained in the affected router rules only -- no
@@ -229,17 +258,17 @@ The split has three concrete benefits:
 1. **Monitoring stack always works.** `dashboard-internal` is hardcoded
    to the EDGEPROXY-INTERNAL subnet — operators can never accidentally
    lock the monitoring containers out of the admin surface by setting
-   an over-restrictive `API_WHITELIST`. Network membership IS the auth:
+   an over-restrictive `MONITORING_WHITELIST`. Network membership IS the auth:
    only services we attach to the internal Docker network can send
    from those ranges.
 
 2. **External access stays gated.** Anyone arriving via host loopback,
    public FQDN, or any non-internal source falls through to
-   `dashboard-local` and must clear both `API_WHITELIST` AND BasicAuth.
-   `API_WHITELIST` policy applies only to external — its scope is
+   `dashboard-local` and must clear both `MONITORING_WHITELIST` AND BasicAuth.
+   `MONITORING_WHITELIST` policy applies only to external — its scope is
    clearly bounded.
 
-3. **`API_WHITELIST` becomes one source of truth for one concern**
+3. **`MONITORING_WHITELIST` becomes one source of truth for one concern**
    (external operator access). No drift between "ranges allowed because
    they're trusted operators" and "ranges allowed because the monitoring
    stack is on them."
@@ -249,7 +278,7 @@ The split has three concrete benefits:
 Default in `.env.example`:
 
 ```env
-API_WHITELIST=127.0.0.1/32, ::1/128, 172.16.0.0/12, 192.168.0.0/16, 10.0.0.0/8
+MONITORING_WHITELIST=127.0.0.1/32, ::1/128, 172.16.0.0/12, 192.168.0.0/16, 10.0.0.0/8
 ```
 
 This covers:
@@ -269,16 +298,16 @@ levels:
 
 | Network | Subnet | Purpose | Admin-access path |
 | --- | --- | --- | --- |
-| `EDGEPROXY` (public) | `${PROXY_SUBNET:-172.30.65.0/16}` + `${PROXY_SUBNET_V6:-fdff:30:65::/64}` | Customer-facing apps that receive **end-user traffic** via Traefik | **None.** Apps reach Traefik for traffic forwarding only; admin surface is unreachable from this network because (a) `dashboard-internal` rule does not match these CIDRs and (b) `API_WHITELIST` does not include them. A compromised public-side app cannot escalate into the admin API. |
+| `EDGEPROXY` (public) | `${PROXY_SUBNET:-172.30.65.0/16}` + `${PROXY_SUBNET_V6:-fdff:30:65::/64}` | Customer-facing apps that receive **end-user traffic** via Traefik | **None.** Apps reach Traefik for traffic forwarding only; admin surface is unreachable from this network because (a) `dashboard-internal` rule does not match these CIDRs and (b) `MONITORING_WHITELIST` does not include them. A compromised public-side app cannot escalate into the admin API. |
 | `EDGEPROXY-INTERNAL` | `${INTERNAL_SUBNET:-172.30.64.0/16}` + `${INTERNAL_SUBNET_V6:-fdff:30:64::/64}` | Monitoring stack (Prometheus, Grafana, Loki, Promtail, Alertmanager, node-exporter, cAdvisor) | **Auto-allowed** via `dashboard-internal` router. No BasicAuth, no whitelist gate -- network membership IS the trust. |
-| Host loopback / LAN / VPN | `127.0.0.1`, `::1`, RFC1918 ranges | Operator (SSH tunnel / direct LAN access) | **Gated** via `dashboard-local`: must be in `API_WHITELIST` AND must clear BasicAuth. |
+| Host loopback / LAN / VPN | `127.0.0.1`, `::1`, RFC1918 ranges | Operator (SSH tunnel / direct LAN access) | **Gated** via `dashboard-local`: must be in `MONITORING_WHITELIST` AND must clear BasicAuth. |
 
 ### Mode 3 (public FQDN) -- add operator IPs
 
 For mode 3 (public FQDN access), add your office / VPN public IPs:
 
 ```env
-API_WHITELIST=127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, 203.0.113.0/24
+MONITORING_WHITELIST=127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, 203.0.113.0/24
 ```
 
 Where `100.64.0.0/10` is the full CGNAT range (Tailscale / WireGuard
@@ -286,11 +315,11 @@ meshes) and `203.0.113.0/24` is your office's public range.
 
 The EDGEPROXY-INTERNAL Docker subnet (default `172.30.64.0/16`) is
 *not* added here -- it is already handled by the `dashboard-internal`
-router without going through `API_WHITELIST` at all.
+router without going through `MONITORING_WHITELIST` at all.
 
 ## BasicAuth credentials
 
-`API_USERS` is htpasswd format with bcrypt. Compose-escape: every `$`
+`MONITORING_USERS` is htpasswd format with bcrypt. Compose-escape: every `$`
 becomes `$$`:
 
 ```bash
@@ -300,15 +329,15 @@ echo $(htpasswd -nB admin) | sed -e 's/\$/\$\$/g'
 The wizard does this automatically. To rotate a password manually:
 
 1. Generate a new hash with the command above.
-2. Replace `API_USERS=...` in `.env`.
+2. Replace `MONITORING_USERS=...` in `.env`.
 3. `sudo ./traefik.sh restart`
 
 ## Multiple admin users
 
-`API_USERS` accepts comma-separated user:hash pairs:
+`MONITORING_USERS` accepts comma-separated user:hash pairs:
 
 ```env
-API_USERS=admin:$$2y$$05$$abc...,operator:$$2y$$05$$xyz...
+MONITORING_USERS=admin:$$2y$$05$$abc...,operator:$$2y$$05$$xyz...
 ```
 
 Each gets the same access (no role-based granularity at the edge).
@@ -317,27 +346,29 @@ on the admin routers and let Authelia handle roles.
 
 ## Disabling the dashboard entirely
 
-If you have no need for the Traefik dashboard, monitoring profile is
-off, and you only care about the public web/web-secure entrypoints,
-you can leave `API_BIND` defaulted to `127.0.0.1` and never SSH-tunnel
-to it. The dashboard simply never gets reached. Resource cost is
-zero (no extra container, just an unused endpoint inside the Traefik
-container).
+Pure-proxy installs (empty `COMPOSE_PROFILES`) automatically have no
+host port for the `monitoring` entrypoint — the binding lives in
+`docker-compose.monitoring.yml` and is only loaded with the
+monitoring profile. The entrypoint still LISTENS inside the
+container (so containers on the proxy-internal network can talk to
+Traefik via `traefik:9090`), but nothing on the host can reach it.
+Zero resource cost, zero exposed surface. No file edits required.
 
-To remove the api entrypoint port mapping completely, edit
-[`docker-compose.yml`](../docker-compose.yml) and delete the
-`${API_BIND}:${API_PORT}:9090/tcp` + `[${API_BIND_V6}]:${API_PORT}:9090/tcp`
-lines. The api entrypoint still exists internally but isn't bound to
-any host port.
+If you DO have monitoring on but want to drop the host binding
+anyway (e.g. you only access admin UIs via mode 3 / public FQDN),
+remove the `traefik.ports:` block from
+[`docker-compose.monitoring.yml`](../docker-compose.monitoring.yml)
+in a `docker-compose.override.yml` overlay rather than editing the
+shipped file.
 
 ## Hardening checklist
 
 Before exposing admin access (any mode):
 
-- [ ] `API_USERS` rotated from the default `admin/admin`.
-- [ ] `API_WHITELIST` tightened to your specific networks (drop
+- [ ] `MONITORING_USERS` rotated from the default `admin/admin`.
+- [ ] `MONITORING_WHITELIST` tightened to your specific networks (drop
       `192.168.0.0/16` etc. if you're not actually on a 192.168 LAN).
-- [ ] If mode 3: `API_HOST` is a hostname that hosts no app.
+- [ ] If mode 3: `MONITORING_HOST` is a hostname that hosts no app.
 - [ ] If mode 3: DNS A/AAAA correct, port 80 reachable for ACME
       HTTP-01 (or DNS-01 configured).
 - [ ] `GRAFANA_ADMIN_PASSWORD` rotated from the default `changeme`.

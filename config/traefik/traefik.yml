@@ -70,11 +70,18 @@ accessLog:
 # -----------------------------------------------------------------------------
 # API + dashboard
 # -----------------------------------------------------------------------------
-# Dashboard is reachable on the dedicated `api` entrypoint (default port
-# 9090, bound to 127.0.0.1 unless API_BIND in .env says otherwise) at
-# the /dashboard path -- routed by the dashboard router defined as
-# compose labels on the traefik service. Plain `--api.insecure=true` is
-# OFF: the api endpoint is only ever reached via an authenticated router.
+# Dashboard is reachable on the dedicated `monitoring` entrypoint (default
+# port 9090, bound to 127.0.0.1 unless MONITORING_BIND in .env says
+# otherwise) at the /dashboard path -- routed by the dashboard router
+# defined as compose labels on the traefik service. Plain
+# `--api.insecure=true` is OFF: the api endpoint is only ever reached via
+# an authenticated router.
+#
+# NOTE: `api:` here is the Traefik FEATURE TOGGLE (the built-in
+# dashboard + REST-API service `api@internal`). Do NOT confuse it with
+# the `monitoring:` entrypoint name above -- they are independent. The
+# feature lives at THIS key by Traefik's hardcoded convention; only our
+# entrypoint label was renamed to `monitoring`.
 api:
   dashboard: true
   insecure: false
@@ -98,9 +105,15 @@ ping:
 #
 #   web         -> public HTTP  (port 80,  redirects to HTTPS by default)
 #   web-secure  -> public HTTPS (port 443, with HTTP/3 / QUIC over UDP/443)
-#   api         -> admin UIs (dashboard, Grafana, Prometheus, Alertmanager).
-#                  Container-port 9090, host-port ${API_BIND}:${API_PORT}.
-#                  9090 matches the legacy ${API_PORT} convention.
+#   monitoring  -> admin UIs (dashboard, Grafana, Prometheus, Alertmanager).
+#                  Container-port 9090, host-port ${MONITORING_BIND}:${MONITORING_PORT}.
+#                  Legacy entrypoint name was `api`; renamed to `monitoring`
+#                  in the major release because the surface is dominated
+#                  by the monitoring UIs and the bundle ships only with
+#                  COMPOSE_PROFILES=monitoring. The Traefik built-in
+#                  service `api@internal` (which actually serves the
+#                  dashboard UI) keeps its hardcoded name -- only OUR
+#                  entrypoint label changed.
 #   metrics     -> Prometheus scrape target on container-port 8082.
 #                  Internal-only -- not exposed to the host. 8082 is the
 #                  port used in the official Traefik documentation
@@ -171,7 +184,7 @@ entryPoints:
       advertisedPort: 443
     # respondingTimeouts -- see `web` block + docker-compose.yml command:.
 
-  api:
+  monitoring:
     address: ":9090/tcp"
 
   metrics:
