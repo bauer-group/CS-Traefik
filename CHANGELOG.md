@@ -1,3 +1,13 @@
+## [1.0.4](https://github.com/bauer-group/CS-Traefik/compare/v1.0.3...v1.0.4) (2026-06-17)
+
+### 🐛 Bug Fixes
+
+* **dashboards:** stabilised 401/403 panel, documented AM datasource ([ef86761](https://github.com/bauer-group/CS-Traefik/commit/ef86761c9cb55993d3481bdf5c6a1275cee6286d))
+
+### ⚡ Performance
+
+* **monitoring:** backed SLO dashboard with recording rules ([a2e9c0a](https://github.com/bauer-group/CS-Traefik/commit/a2e9c0adf3a7a77e9752a776fe50cdc93aafd817))
+
 ## [1.0.3](https://github.com/bauer-group/CS-Traefik/compare/v1.0.2...v1.0.3) (2026-06-17)
 
 ### 🐛 Bug Fixes
