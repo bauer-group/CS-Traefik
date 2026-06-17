@@ -1,5 +1,5 @@
 {
-  "description": "Service-Level Indicators / Objectives. Default targets: 99.9% availability, p95 < 500ms, 5xx < 0.1%. $sloAvailability drives the error-budget / burn-rate queries; $sloLatencyP95 sets the displayed latency target. Gauge colour thresholds are static -- Grafana cannot template threshold values.",
+  "description": "Service-Level Indicators / Objectives. Default targets: 99.9% availability, p95 < 500ms, 5xx < 0.1%. $sloAvailability drives the error-budget / burn-rate queries; $sloLatencyP95 sets the displayed latency target. Gauge colour thresholds are static -- Grafana cannot template threshold values. The 28d/7d panels are backed by recording rules (config/prometheus/recording-rules.yml) for cheap long-window queries; they fully populate only after the rules have run for the whole window.",
   "editable": true,
   "graphTooltip": 1,
   "panels": [
@@ -26,7 +26,7 @@
       "id": 1,
       "options": { "showThresholdLabels": true, "showThresholdMarkers": true, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "100 * (1 - (sum(rate(traefik_service_requests_total{code=~\"5..\"}[28d])) / clamp_min(sum(rate(traefik_service_requests_total[28d])), 0.001)))", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "100 * (1 - (sum_over_time(traefik:requests:errors:rate5m[28d]) / clamp_min(sum_over_time(traefik:requests:rate5m[28d]), 0.001)))", "refId": "A" }
       ],
       "title": "Availability (28d) -- target $sloAvailability%",
       "type": "gauge"
@@ -45,7 +45,7 @@
       "id": 2,
       "options": { "showThresholdLabels": false, "showThresholdMarkers": true, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(traefik_service_request_duration_seconds_bucket[28d])) by (le))", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum_over_time(traefik:request_duration_seconds_bucket:rate5m[28d]))", "refId": "A" }
       ],
       "title": "p95 Latency (28d) -- target ${sloLatencyP95}s",
       "type": "gauge"
@@ -65,7 +65,7 @@
       "id": 3,
       "options": { "showThresholdLabels": true, "showThresholdMarkers": true, "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "100 * (sum(rate(traefik_service_requests_total{code=~\"5..\"}[28d])) / clamp_min(sum(rate(traefik_service_requests_total[28d])), 0.001)) / (1 - $sloAvailability/100)", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "100 * (sum_over_time(traefik:requests:errors:rate5m[28d]) / clamp_min(sum_over_time(traefik:requests:rate5m[28d]), 0.001)) / (1 - $sloAvailability/100)", "refId": "A" }
       ],
       "title": "Error Budget Burn (28d, % of budget)",
       "type": "gauge"
@@ -122,8 +122,8 @@
       "id": 5,
       "options": { "showHeader": true, "footer": { "show": false }, "sortBy": [ { "displayName": "Avail %", "desc": false } ] },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "100 * (1 - (sum by (service) (rate(traefik_service_requests_total{code=~\"5..\"}[7d])) / clamp_min(sum by (service) (rate(traefik_service_requests_total[7d])), 0.001)))", "format": "table", "instant": true, "refId": "A" },
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum by (le, service) (rate(traefik_service_request_duration_seconds_bucket[7d])))", "format": "table", "instant": true, "refId": "B" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "100 * (1 - (sum_over_time(traefik:requests:errors:rate5m:by_service[7d]) / clamp_min(sum_over_time(traefik:requests:rate5m:by_service[7d]), 0.001)))", "format": "table", "instant": true, "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum_over_time(traefik:request_duration_seconds_bucket:rate5m:by_service[7d]))", "format": "table", "instant": true, "refId": "B" }
       ],
       "title": "Per-Service SLO (7d window)",
       "transformations": [

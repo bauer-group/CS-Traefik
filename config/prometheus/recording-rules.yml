@@ -1,0 +1,48 @@
+# =============================================================================
+# Prometheus - Recording Rules (SLO pre-aggregation)
+# =============================================================================
+# These pre-compute the request / error / latency rates that back the
+# SLI/SLO dashboard.
+#
+# Why: the dashboard's availability + p95 + error-budget panels span a 28d
+# window. Querying `rate(traefik_service_requests_total[28d])` directly forces
+# Prometheus to load 28 days of raw counter samples for EVERY (service, code)
+# series on every dashboard load -- heavy on a small host (Prometheus is capped
+# around 1 GB here). Recording a single pre-aggregated 5m-rate series instead
+# turns the dashboard query into a `sum_over_time` over ONE series. The
+# availability ratio stays request-weighted because the overlapping 5m windows
+# cancel between numerator and denominator.
+#
+# Quantiles cannot be averaged, so latency is recorded as the per-`le` bucket
+# RATE; the dashboard reconstructs the 28d/7d p95 with
+# `histogram_quantile(0.95, sum_over_time(<bucket rate>[28d]))` -- bucket rates
+# CAN be summed.
+#
+# NOTE: recording rules are FORWARD-looking. The 28d panels are only fully
+# populated after the rules have been evaluating for 28 days; before that they
+# cover "since the rules started running". This is the standard SLO trade-off
+# for cheap long-window queries.
+# =============================================================================
+groups:
+  - name: traefik_slo_recordings
+    interval: 30s
+    rules:
+      # ---- Stack-wide request + 5xx-error rate (5m window) ----
+      - record: traefik:requests:rate5m
+        expr: sum(rate(traefik_service_requests_total[5m]))
+      - record: traefik:requests:errors:rate5m
+        expr: sum(rate(traefik_service_requests_total{code=~"5.."}[5m]))
+
+      # ---- Per-service request + 5xx-error rate (5m window) ----
+      - record: traefik:requests:rate5m:by_service
+        expr: sum by (service) (rate(traefik_service_requests_total[5m]))
+      - record: traefik:requests:errors:rate5m:by_service
+        expr: sum by (service) (rate(traefik_service_requests_total{code=~"5.."}[5m]))
+
+      # ---- Latency histogram bucket rate (5m window) ----
+      # Recorded per-`le` so the dashboard can reconstruct the long-window p95
+      # with histogram_quantile(sum_over_time(...)).
+      - record: traefik:request_duration_seconds_bucket:rate5m
+        expr: sum by (le) (rate(traefik_service_request_duration_seconds_bucket[5m]))
+      - record: traefik:request_duration_seconds_bucket:rate5m:by_service
+        expr: sum by (le, service) (rate(traefik_service_request_duration_seconds_bucket[5m]))
