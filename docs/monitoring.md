@@ -248,29 +248,28 @@ notification channels.
 | `containers` | ContainerKilled, ContainerCpuThrottled, ContainerMemoryNearLimit |
 | `traefik` | TraefikDown, TraefikHighHttp5xxRate, TraefikHighHttp4xxRate, TraefikCertExpiringSoon |
 
-**Notification channels**: default config prints alerts to the
-container log only. Plug in receivers via
-[`config/alertmanager/alertmanager.yml`](../config/alertmanager/alertmanager.yml):
+**Notification channels**: ⚠️ Alertmanager does **not** log alert
+contents — a receiver with no notifier is a *silent sink* (alerts are
+accepted and dropped with zero output). The shipped config therefore
+includes a working **email receiver** to `info@bauer-group.com` so alerts
+actually leave the box. You **must** point `global.smtp_*` in
+[`config/alertmanager/alertmanager.yml`](../config/alertmanager/alertmanager.yml)
+at a reachable SMTP relay:
 
 ```yaml
-receivers:
-  - name: default
-    slack_configs:
-      - api_url: "https://hooks.slack.com/services/T0xxxxxx/B0xxxxxx/xxxxxxxxxxxxxxxxxxxxxxxx"
-        channel: "#alerts"
-        send_resolved: true
-        title: "[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}"
-        text: |
-          {{ range .Alerts -}}
-          *Severity:* {{ .Labels.severity }}
-          *Instance:* {{ .Labels.instance }}
-          *Summary:*  {{ .Annotations.summary }}
-          *Details:*  {{ .Annotations.description }}
-          {{ end }}
+global:
+  smtp_smarthost: 'smtp.example.com:587'       # real relay host:port
+  smtp_from: 'alertmanager@bauer-group.com'    # sender your relay allows
+  smtp_require_tls: true
 ```
 
-Slack / email / Telegram / PagerDuty / Opsgenie / generic-webhook
-receivers all work — see the
+Until the relay is reachable, Alertmanager still starts but each delivery
+attempt **fails loudly** in `docker logs <stack>-alertmanager` (a visible
+error, never a silent drop). Alertmanager has **no** env-var expansion, so
+SMTP settings live in the file, not `.env` (same as `prometheus.yml`).
+
+Slack / Telegram / PagerDuty / Opsgenie / generic-webhook receivers all
+work too — add the relevant block and see the
 [Alertmanager docs](https://prometheus.io/docs/alerting/latest/configuration/).
 
 **Inhibition rules**: critical alerts suppress matching warning-level
