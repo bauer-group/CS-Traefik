@@ -1,3 +1,11 @@
+## [1.0.2](https://github.com/bauer-group/CS-Traefik/compare/v1.0.1...v1.0.2) (2026-06-17)
+
+### 🐛 Bug Fixes
+
+* **alertmanager:** delivered alerts by email to stop silent drops ([0e48d59](https://github.com/bauer-group/CS-Traefik/commit/0e48d59e474cc404adad1ffe519fd344c7b4db6c))
+* **installer:** hardened .env writing, input validation, upgrade exec ([38deb6d](https://github.com/bauer-group/CS-Traefik/commit/38deb6da606f1209160a0ce42a09b19ec8b7f61c))
+* **security:** enforced Grafana password and dropped misleading :ro ([140a3d7](https://github.com/bauer-group/CS-Traefik/commit/140a3d7e09d590d1b6fee3a7860b1176dbf7ecc8))
+
 ## [1.0.1](https://github.com/bauer-group/CS-Traefik/compare/v1.0.0...v1.0.1) (2026-05-10)
 
 ### ♻️ Refactoring
