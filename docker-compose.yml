@@ -100,17 +100,26 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
       # =========================================================================
-      # Dashboard router -- on the dedicated `monitoring` entrypoint, NEVER on 443.
+      # Dashboard routers -- monitoring entrypoint by default; public 443 only via Mode 3.
       # =========================================================================
-      # The monitoring entrypoint binds to ${MONITORING_BIND:-127.0.0.1}:${MONITORING_PORT:-9090}
-      # (see ports section) so by default the dashboard is reachable ONLY
-      # via the Docker host's loopback. SSH-tunnel for remote access:
+      # The `monitoring` entrypoint listens on :9090 INSIDE the container
+      # (config/traefik/traefik.yml), but its HOST-port binding lives in
+      # docker-compose.monitoring.yml under `profiles: [monitoring]` -- NOT
+      # in this file. So a pure-proxy install (empty COMPOSE_PROFILES) binds
+      # no 9090 on the host at all: the dashboard is then reachable only from
+      # containers on the proxy-internal network via `traefik:9090`.
+      #
+      # With the monitoring profile active, 9090 binds to
+      # ${MONITORING_BIND:-127.0.0.1}:${MONITORING_PORT:-9090} -- loopback by
+      # default. SSH-tunnel for remote access:
       #   ssh -L 9090:127.0.0.1:9090 user@server
       #   then open http://127.0.0.1:9090/dashboard/
       #
-      # To also expose admin UIs on a public FQDN (https://${MONITORING_HOST}/),
-      # set MONITORING_HOST in .env -- a second router on web-secure activates
-      # automatically (BasicAuth + IP whitelist enforced).
+      # Mode 3 -- to expose admin UIs on a public FQDN (https://${MONITORING_HOST}/),
+      # set MONITORING_HOST in .env: the dashboard-public router on web-secure
+      # activates automatically (BasicAuth + IP whitelist enforced). This path
+      # rides on 443 (part of THIS base stack), so it works in a pure-proxy
+      # install too -- no monitoring profile required.
       traefik.enable: "true"
       traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}"
 
