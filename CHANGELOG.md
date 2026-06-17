@@ -1,3 +1,9 @@
+## [1.0.3](https://github.com/bauer-group/CS-Traefik/compare/v1.0.2...v1.0.3) (2026-06-17)
+
+### 🐛 Bug Fixes
+
+* **dashboards:** corrected broken panel queries and label mismatches ([7204a8a](https://github.com/bauer-group/CS-Traefik/commit/7204a8a7333923bd1898c5824e763c8aafe1a715))
+
 ## [1.0.2](https://github.com/bauer-group/CS-Traefik/compare/v1.0.1...v1.0.2) (2026-06-17)
 
 ### 🐛 Bug Fixes
