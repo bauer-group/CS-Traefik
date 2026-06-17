@@ -587,8 +587,14 @@ cmd_check_host_isolation() {
 
     # ---- 3. Verify our container OOM scores --------------------------------
     print_info "Checking running container OOM scores (if stack is up)..."
-    if check_docker 2>/dev/null && docker ps --format '{{.Names}}' | grep -q "${STACK_NAME:-edgeproxy}"; then
-        for c in ${STACK_NAME:-edgeproxy}-traefik ${STACK_NAME:-edgeproxy}-prometheus ${STACK_NAME:-edgeproxy}-grafana; do
+    # Resolve the real project name from .env -- this script passes .env only
+    # via --env-file to docker and never sources it, so a bare
+    # ${STACK_NAME:-edgeproxy} would always read the default and inspect the
+    # wrong container names on any non-default install.
+    local stack_name
+    stack_name=$(get_env_value STACK_NAME); stack_name=${stack_name:-edgeproxy}
+    if check_docker 2>/dev/null && docker ps --format '{{.Names}}' | grep -q "$stack_name"; then
+        for c in "$stack_name"-traefik "$stack_name"-prometheus "$stack_name"-grafana; do
             if docker inspect "$c" >/dev/null 2>&1; then
                 local pid
                 pid=$(docker inspect -f '{{.State.Pid}}' "$c")
@@ -624,15 +630,20 @@ cmd_check_host_isolation() {
     echo
 
     # ---- 4. Data directory mount ------------------------------------------
-    print_info "Checking ${DATA_DIRECTORY:-./data} mount layout..."
-    if [[ -d "${DATA_DIRECTORY:-./data}" ]]; then
+    # resolve_data_dir reads DATA_DIRECTORY from .env and expands ./ against
+    # PROJECT_ROOT -- bare ${DATA_DIRECTORY:-./data} would ignore the .env
+    # value and resolve relative to the current working directory.
+    local data_dir
+    data_dir=$(resolve_data_dir)
+    print_info "Checking $data_dir mount layout..."
+    if [[ -d "$data_dir" ]]; then
         if command -v df >/dev/null 2>&1; then
             local data_fs
-            data_fs=$(df --output=source "${DATA_DIRECTORY:-./data}" 2>/dev/null | tail -1)
+            data_fs=$(df --output=source "$data_dir" 2>/dev/null | tail -1)
             local root_fs
             root_fs=$(df --output=source / 2>/dev/null | tail -1)
             if [[ "$data_fs" == "$root_fs" ]]; then
-                print_warning "DATA_DIRECTORY (${DATA_DIRECTORY:-./data}) is on the same"
+                print_warning "DATA_DIRECTORY ($data_dir) is on the same"
                 print_warning "filesystem as / -- a Prometheus / Loki write spike can"
                 print_warning "starve the OS root I/O. For production, mount this on a"
                 print_warning "dedicated volume."
@@ -742,7 +753,12 @@ HELP
     fi
 
     # ---- Resolve target path ---------------------------------------------
-    local data_dir="${DATA_DIRECTORY:-./data}"
+    # Read DATA_DIRECTORY from .env (expanded against PROJECT_ROOT). A bare
+    # ${DATA_DIRECTORY:-./data} would ignore the configured directory and
+    # write the migrated ACME store under ./data relative to the CWD -- i.e.
+    # the wrong location on any install that set a custom DATA_DIRECTORY.
+    local data_dir
+    data_dir=$(resolve_data_dir)
     if [[ -z "$target_file" ]]; then
         target_file="$data_dir/traefik/letsencrypt/${target_resolver}.json"
     fi
@@ -896,8 +912,10 @@ cmd_destroy() {
     require_env
     check_docker
 
+    local stack_name
+    stack_name=$(get_env_value STACK_NAME); stack_name=${stack_name:-edgeproxy}
     print_warning "This will stop and remove ALL containers, networks, and named volumes"
-    print_warning "for the '${STACK_NAME:-edgeproxy}' compose project."
+    print_warning "for the '$stack_name' compose project."
     print_warning "Bind-mounted data (the DATA_DIRECTORY) is preserved."
     echo
     read -rp "Type 'destroy' to confirm: " confirm

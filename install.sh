@@ -481,6 +481,88 @@ ask_yes_no() {
     [[ "$response" =~ ^[Yy]$ ]] && echo "yes" || echo "no"
 }
 
+# -----------------------------------------------------------------------------
+# Input validators for operator free-text that lands in .env
+# -----------------------------------------------------------------------------
+# Each takes one value: returns 0 if acceptable, else prints a reason to
+# stderr and returns 1. Deliberately permissive (allow what a real config
+# needs) but strict enough to block characters that could break .env line
+# structure or smuggle a second assignment. set_env() is the last-resort
+# guard (rejects newlines); these give the operator a friendly re-prompt
+# instead of a hard abort.
+_value_is_safe() {
+    if [[ "$1" == *$'\n'* || "$1" == *$'\r'* ]]; then
+        echo "  value must not contain line breaks" >&2
+        return 1
+    fi
+    return 0
+}
+valid_email() {
+    _value_is_safe "$1" || return 1
+    [[ "$1" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] && return 0
+    echo "  not a valid email address: $1" >&2; return 1
+}
+valid_hostname() {
+    _value_is_safe "$1" || return 1
+    [[ ${#1} -le 253 && "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] && return 0
+    echo "  not a valid hostname/FQDN: $1" >&2; return 1
+}
+valid_cidr_list() {
+    _value_is_safe "$1" || return 1
+    # Comma-separated IPv4/IPv6 CIDRs: only hex, dots, colons, slashes,
+    # commas and spaces are ever needed. Regex via a variable so the literal
+    # space in the character class is unambiguous inside [[ =~ ]].
+    local re='^[0-9a-fA-F:./, ]+$'
+    [[ -n "$1" && "$1" =~ $re ]] && return 0
+    echo "  whitelist must be comma-separated CIDRs (got: $1)" >&2; return 1
+}
+valid_username() {
+    _value_is_safe "$1" || return 1
+    [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]] && return 0
+    echo "  username may only contain letters, digits, . _ - (got: $1)" >&2; return 1
+}
+valid_stack_name() {
+    _value_is_safe "$1" || return 1
+    [[ "$1" =~ ^[a-z0-9][a-z0-9_-]*$ ]] && return 0
+    echo "  project name must be lowercase [a-z0-9_-], starting alphanumeric (got: $1)" >&2; return 1
+}
+valid_network_name() {
+    _value_is_safe "$1" || return 1
+    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] && return 0
+    echo "  network name must be [A-Za-z0-9_-], starting alphanumeric (got: $1)" >&2; return 1
+}
+valid_timezone() {
+    _value_is_safe "$1" || return 1
+    [[ "$1" =~ ^[A-Za-z0-9._+/-]+$ ]] && return 0
+    echo "  not a valid IANA timezone: $1" >&2; return 1
+}
+valid_data_dir() {
+    _value_is_safe "$1" || return 1
+    # Absolute (/...) or ./relative path, plain path characters only.
+    [[ "$1" =~ ^(\./|/)?[A-Za-z0-9._/-]+$ ]] && return 0
+    echo "  path may only contain letters, digits, . _ / - (got: $1)" >&2; return 1
+}
+
+# ask_validated "Prompt" "default" validator_fn
+# Like ask(), but re-prompts (interactive) until validator_fn accepts the
+# answer. In non-interactive mode an invalid default is a hard error rather
+# than an infinite loop.
+ask_validated() {
+    local prompt="$1" default="$2" validator="$3" value
+    while true; do
+        value=$(ask "$prompt" "$default")
+        if "$validator" "$value"; then
+            printf '%s' "$value"
+            return 0
+        fi
+        if [[ "$INTERACTIVE" == false ]]; then
+            print_error "Invalid value for '${prompt}': ${value}" >&2
+            exit 1
+        fi
+        print_warning "Please try again." >&2
+    done
+}
+
 set_env() {
     # set_env KEY VALUE -- write KEY=value to $ENV_FILE.
     #
@@ -490,17 +572,23 @@ set_env() {
     # inside long instructional comment blocks. Operators who want the
     # full reference can read .env.example -- it's still in the repo.
     #
-    # If KEY= already exists in the file (re-call within the same wizard
-    # run, defensive), the value is replaced in-place rather than
-    # appended a second time.
-    local key="$1" value="$2" escaped
-    escaped=$(printf '%s' "$value" | sed -e 's/[\\&|]/\\&/g')
-    if grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
-        sed -i.bak "s|^${key}=.*|${key}=${escaped}|" "$ENV_FILE"
-        rm -f "$ENV_FILE.bak"
-    else
-        echo "${key}=${value}" >> "$ENV_FILE"
+    # Writer is delete-then-append: any existing KEY= line is removed first,
+    # then the new line is appended with printf. There is no sed REPLACEMENT
+    # string, so &, |, \ in the value are never re-interpreted -- the old
+    # sed-based replace escaped them only on the replace path (not the append
+    # path), silently mangling such values on a reconfigure. Newlines are
+    # rejected outright: a newline is the one character that could smuggle a
+    # second KEY=value assignment into the file.
+    local key="$1" value="$2"
+    if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+        print_error "Refusing to write a multi-line value for ${key} (possible .env injection)."
+        exit 1
     fi
+    if [[ -f "$ENV_FILE" ]] && grep -qE "^${key}=" "$ENV_FILE" 2>/dev/null; then
+        grep -vE "^${key}=" "$ENV_FILE" > "$ENV_FILE.tmp" 2>/dev/null || true
+        mv "$ENV_FILE.tmp" "$ENV_FILE"
+    fi
+    printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
 }
 
 # write_env_header -- write the top-of-.env preamble. Stdout, so the
@@ -687,9 +775,9 @@ run_wizard() {
     print_section "Stack identity"
     set_env_section "Stack identity"
     local stack_name network_name time_zone data_dir
-    stack_name=$(ask "Compose project name (lowercase)" "edgeproxy")
-    network_name=$(ask "Public network name (legacy default: EDGEPROXY)" "EDGEPROXY")
-    time_zone=$(ask "Timezone (IANA name)" "$default_tz")
+    stack_name=$(ask_validated "Compose project name (lowercase)" "edgeproxy" valid_stack_name)
+    network_name=$(ask_validated "Public network name (legacy default: EDGEPROXY)" "EDGEPROXY" valid_network_name)
+    time_zone=$(ask_validated "Timezone (IANA name)" "$default_tz" valid_timezone)
     # Default `./data` keeps runtime state under the install dir but in
     # a clearly-separated, gitignored subdirectory. Override to an
     # absolute path if you want state on a separate disk / volume.
@@ -724,7 +812,7 @@ run_wizard() {
             fi
         fi
     fi
-    data_dir=$(ask "Data directory (relative to install dir, OR absolute path for separate disk)" "./data")
+    data_dir=$(ask_validated "Data directory (relative to install dir, OR absolute path for separate disk)" "./data" valid_data_dir)
 
     set_env STACK_NAME      "$stack_name"
     set_env NETWORK_NAME    "$network_name"
@@ -796,7 +884,7 @@ EOF
             default_whitelist="127.0.0.1/32, ::1/128, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16"
             ;;
         3)
-            api_host=$(ask "Admin FQDN (must host NO application)" "admin.${default_domain}")
+            api_host=$(ask_validated "Admin FQDN (must host NO application)" "admin.${default_domain}" valid_hostname)
             set_env MONITORING_BIND      "127.0.0.1"
             set_env MONITORING_BIND_V6   "::1"
             set_env MONITORING_HOST      "$api_host"
@@ -819,11 +907,11 @@ EOF
     set_env MONITORING_PORT "9090"
 
     local api_whitelist
-    api_whitelist=$(ask "IP whitelist (comma-separated CIDRs)" "$default_whitelist")
+    api_whitelist=$(ask_validated "IP whitelist (comma-separated CIDRs)" "$default_whitelist" valid_cidr_list)
     set_env MONITORING_WHITELIST "$api_whitelist"
 
     local admin_user admin_pass admin_pass_display="" auth_string
-    admin_user=$(ask "Admin username (BasicAuth)" "admin")
+    admin_user=$(ask_validated "Admin username (BasicAuth)" "admin" valid_username)
     if [[ "$INTERACTIVE" == true ]]; then
         echo
         if [[ "$(ask_yes_no "Generate a random password?" Y)" == "yes" ]]; then
@@ -859,7 +947,7 @@ EOF
     # so this address is effectively just the ACME account contact -- the
     # default is fine to accept on most installs.
     local le_email
-    le_email=$(ask "ACME contact email" "info@bauer-group.com")
+    le_email=$(ask_validated "ACME contact email" "info@bauer-group.com" valid_email)
     set_env LETSENCRYPT_EMAIL "$le_email"
 
     if [[ "$(ask_yes_no "Use Let's Encrypt staging (recommended for first run)?" N)" == "yes" ]]; then
@@ -882,7 +970,7 @@ EOF
         echo "admin for HTTP-API access and emergency password reset only."
         echo
         local grafana_pass
-        grafana_user=$(ask "Grafana DB admin username (bootstrap, not for UI login)" "admin")
+        grafana_user=$(ask_validated "Grafana DB admin username (bootstrap, not for UI login)" "admin" valid_username)
         set_env GRAFANA_ADMIN_USER "$grafana_user"
 
         if [[ "$INTERACTIVE" == true ]] \
@@ -1016,11 +1104,32 @@ V2_API_BIND_V6=""
 V2_API_HOSTNAME=""
 declare -A V2_OLD_ENV   # parsed key=value pairs from old .env
 
+# Run a command given as ARGV (no eval). The command MUST succeed --
+# `set -e` aborts the upgrade if it fails. Use for steps where failure is
+# fatal (the atomic backup rename). In dry-run, print the command with
+# %q-quoting so it is copy-pasteable and unambiguous.
+#
+# Why argv and not `eval "$@"`: the previous form interpolated $dir /
+# $project / $name / $net into a single-quoted string and eval'd it. A
+# single quote in any of those values (an install dir or hostname
+# containing `'`) broke out of the quoting and ran arbitrary shell.
+# Passing argv removes the eval entirely -- values are data, never code.
 upgrade_run_or_dry() {
     if [[ "$DRY_RUN" == true ]]; then
-        echo "    [dry-run] $*"
+        printf '    [dry-run]'; printf ' %q' "$@"; printf '\n'
     else
-        eval "$@"
+        "$@"
+    fi
+}
+
+# Best-effort variant: same argv execution, but tolerates failure (the
+# target project / network may not exist). Output stays visible for
+# operator awareness; only the exit status is swallowed.
+upgrade_try_or_dry() {
+    if [[ "$DRY_RUN" == true ]]; then
+        printf '    [dry-run]'; printf ' %q' "$@"; printf '\n'
+    else
+        "$@" || true
     fi
 }
 
@@ -1172,7 +1281,7 @@ stop_v2_stack() {
     if [[ -n "$V2_DETECTED_PROJECTS" ]]; then
         while IFS= read -r project; do
             print_info "compose down (project=$project)"
-            upgrade_run_or_dry "docker compose -f '$dir/docker-compose.yml' --project-name '$project' down --remove-orphans 2>&1 || true"
+            upgrade_try_or_dry docker compose -f "$dir/docker-compose.yml" --project-name "$project" down --remove-orphans
         done <<< "$V2_DETECTED_PROJECTS"
     fi
 
@@ -1185,7 +1294,7 @@ stop_v2_stack() {
     for name in "${fallback_names[@]}"; do
         [[ -z "$name" || "$seen" == *" $name "* ]] && continue
         seen="$seen$name "
-        upgrade_run_or_dry "docker compose -f '$dir/docker-compose.yml' --project-name '$name' down --remove-orphans 2>/dev/null || true"
+        upgrade_try_or_dry docker compose -f "$dir/docker-compose.yml" --project-name "$name" down --remove-orphans
     done
 
     print_success "v2 stack stopped (or was already)."
@@ -1200,7 +1309,7 @@ remove_v2_networks() {
         seen="$seen$net "
         if docker network inspect "$net" >/dev/null 2>&1; then
             print_info "docker network rm $net"
-            upgrade_run_or_dry "docker network rm '$net' 2>/dev/null || true"
+            upgrade_try_or_dry docker network rm "$net"
         fi
     done
     print_success "Legacy networks removed (where present)."
@@ -1211,7 +1320,7 @@ backup_v2_dir() {
     local source="$1" backup="$2"
     print_section "Phase 4: Atomic rename to backup"
     if [[ -d "$source" ]]; then
-        upgrade_run_or_dry "mv '$source' '$backup'"
+        upgrade_run_or_dry mv "$source" "$backup"
         print_success "$source -> $backup"
     fi
 }

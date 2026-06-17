@@ -1,0 +1,12 @@
+# Line-ending policy
+# ---------------------------------------------------------------------------
+# Shell scripts MUST stay LF: install.sh / traefik.sh are run on Linux hosts
+# (and install.sh via `curl | bash`). A CRLF would make bash choke on the
+# shebang and on every `\r`-terminated token. Pin them so a Windows checkout
+# (autocrlf) can never reintroduce CRLF into the committed blob.
+*.sh        text eol=lf
+
+# Config + compose files are read inside Linux containers -- keep them LF too.
+*.yml       text eol=lf
+*.yaml      text eol=lf
+.env.example text eol=lf
