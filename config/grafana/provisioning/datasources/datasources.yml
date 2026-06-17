@@ -45,9 +45,18 @@ datasources:
     uid: alertmanager
     type: alertmanager
     access: proxy
+    # Purpose: this datasource is NOT used by any dashboard PANEL (the alerts
+    # dashboard reads alert/silence STATE via Prometheus `alertmanager_*`
+    # metrics). It is provisioned so Grafana's Alerting UI can read this
+    # external Alertmanager directly -- browse alert groups and create/expire
+    # silences from Grafana, complementing the standalone /alertmanager UI.
+    # Keep it even though no panel queries it; it is intentional integration,
+    # not dead weight. `handleGrafanaManagedAlerts: false` keeps it read-only
+    # for Grafana's own rule engine (this stack alerts via Prometheus rules).
+    #
     # `--web.route-prefix=/alertmanager` (set in docker-compose.monitoring.yml)
-    # serves the API under /alertmanager. Without the path suffix
-    # Grafana's status / silences / alerts queries return 404.
+    # serves the API under /alertmanager. Without the path suffix Grafana's
+    # status / silences / alerts queries return 404.
     url: http://alertmanager:9093/alertmanager
     editable: false
     jsonData:
