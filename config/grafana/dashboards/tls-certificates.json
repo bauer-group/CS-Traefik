@@ -124,7 +124,7 @@
       ],
       "title": "All Certificates -- sorted by closest expiry",
       "transformations": [
-        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "instance": true, "job": true, "service": true }, "renameByName": { "cn": "Domain", "sans": "SANs", "serial": "Serial", "subject": "Subject", "Value": "Days Left" } } }
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "__name__": true, "instance": true, "job": true, "service": true }, "renameByName": { "cn": "Domain", "sans": "SANs", "serial": "Serial", "Value": "Days Left" } } }
       ],
       "type": "table"
     },

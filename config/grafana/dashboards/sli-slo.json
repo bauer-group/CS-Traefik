@@ -1,5 +1,5 @@
 {
-  "description": "Service-Level Indicators / Objectives. Default targets: 99.9% availability, p95 < 500ms, 5xx < 0.1%. Override via the $sloAvailability / $sloLatencyP95 / $sloErrorRate variables.",
+  "description": "Service-Level Indicators / Objectives. Default targets: 99.9% availability, p95 < 500ms, 5xx < 0.1%. $sloAvailability drives the error-budget / burn-rate queries; $sloLatencyP95 sets the displayed latency target. Gauge colour thresholds are static -- Grafana cannot template threshold values.",
   "editable": true,
   "graphTooltip": 1,
   "panels": [
@@ -152,14 +152,6 @@
         "name": "sloLatencyP95",
         "options": [ { "selected": true, "text": "0.5", "value": "0.5" } ],
         "query": "0.5",
-        "type": "textbox"
-      },
-      {
-        "current": { "selected": true, "text": "0.1", "value": "0.1" },
-        "label": "Error rate target (%)",
-        "name": "sloErrorRate",
-        "options": [ { "selected": true, "text": "0.1", "value": "0.1" } ],
-        "query": "0.1",
         "type": "textbox"
       }
     ]

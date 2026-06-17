@@ -68,9 +68,9 @@
       "id": 3,
       "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [
-        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "count(ALERTS_FOR_STATE) or vector(0)", "refId": "A" }
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(prometheus_rule_group_rules)", "refId": "A" }
       ],
-      "title": "Active Rule Series",
+      "title": "Configured Alert Rules",
       "type": "stat"
     },
     {

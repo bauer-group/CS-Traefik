@@ -9,4 +9,5 @@
 # Config + compose files are read inside Linux containers -- keep them LF too.
 *.yml       text eol=lf
 *.yaml      text eol=lf
+*.json      text eol=lf
 .env.example text eol=lf
