@@ -371,6 +371,7 @@ Before exposing admin access (any mode):
 - [ ] If mode 3: `MONITORING_HOST` is a hostname that hosts no app.
 - [ ] If mode 3: DNS A/AAAA correct, port 80 reachable for ACME
       HTTP-01 (or DNS-01 configured).
-- [ ] `GRAFANA_ADMIN_PASSWORD` rotated from the default `changeme`.
+- [ ] `GRAFANA_ADMIN_PASSWORD` is set to a strong value (the wizard
+      generates one; compose fails closed if it is missing).
 - [ ] `.env` is `chmod 600` (the wizard does this; verify after
       manual edits).

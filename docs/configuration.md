@@ -130,7 +130,7 @@ passes them through automatically).
 | `CADVISOR_IMAGE_TAG` | `latest` | |
 | `NODE_EXPORTER_IMAGE_TAG` | `latest` | |
 | `GRAFANA_ADMIN_USER` | `admin` | Grafana's own admin user (separate from `MONITORING_USERS`). |
-| `GRAFANA_ADMIN_PASSWORD` | `changeme` | **Change before exposing**. |
+| `GRAFANA_ADMIN_PASSWORD` | *(required)* | No insecure default — compose fails closed if unset while monitoring is active. The `install.sh` wizard generates a strong random value. |
 | `GRAFANA_PLUGINS` | *(empty)* | Comma-separated list of Grafana plugins installed on first start. |
 | `PROMETHEUS_RETENTION_TIME` | `30d` | Whichever (time or size) hits first wins. |
 | `PROMETHEUS_RETENTION_SIZE` | `8GB` | |

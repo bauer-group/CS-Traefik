@@ -196,7 +196,11 @@ services:
       # and for `grafana-cli admin reset-admin-password` emergency
       # recovery if the login form is ever flipped back on.
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      # No insecure default: compose REQUIRES this when the monitoring profile
+      # is active (fail-closed -- a weak shared `changeme` must never ship as
+      # the effective credential). The install.sh wizard generates a strong
+      # random value automatically; set one in .env for manual setups.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env (install.sh wizard generates one automatically)}
       GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
       GF_SECURITY_ALLOW_EMBEDDING: "false"
       GF_SECURITY_COOKIE_SAMESITE: "lax"
@@ -403,14 +407,15 @@ services:
       traefik.enable: "false"
     volumes:
       - ./config/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
-      # Docker socket (read-only) -- promtail-config.yml uses
-      # docker_sd_configs to discover all containers on the host and
-      # ship their stdout/stderr logs. Without this mount Promtail
-      # only reaches the Traefik file logs (via the bind mount below)
-      # and silently misses every container's stdout. The mount is
-      # read-only because Promtail only LISTS + READS containers; it
-      # never starts/stops/modifies them.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Docker socket -- promtail-config.yml uses docker_sd_configs to
+      # discover all containers on the host and ship their stdout/stderr.
+      # Without this mount Promtail only reaches the Traefik file logs (via
+      # the bind mount below) and silently misses every container's stdout.
+      # Promtail only LISTS + READS containers, but no `:ro` here: on a unix
+      # socket that flag guards only the inode, not the Docker API, so it
+      # never actually constrained Promtail. Real read-only scoping needs a
+      # docker-socket-proxy (CONTAINERS=1, everything else 0).
+      - /var/run/docker.sock:/var/run/docker.sock
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - ${DATA_DIRECTORY:-./data}/traefik/logs:/var/log/traefik:ro
       - ${DATA_DIRECTORY:-./data}/promtail:/var/lib/promtail:rw

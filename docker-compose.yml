@@ -502,9 +502,14 @@ services:
       # otherwise 9090 is internal-only. There is no separate overlay
       # to manage -- one profile, one decision.
     volumes:
-      # Read-only socket. Promote to docker-socket-proxy if the threat
-      # model demands it -- the dashboard is already auth-gated.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Docker socket -- the provider needs to read containers + events.
+      # No `:ro`: on a unix socket that flag only protects the inode, NOT
+      # the Docker API (anyone who can talk to the socket can POST
+      # /containers/create with Privileged+host mounts = host root). It
+      # conferred nothing, so it is dropped rather than implying a guarantee
+      # it never gave. Real scoping needs a docker-socket-proxy -- a planned
+      # hardening step, deferred for now (dashboard is already auth-gated).
+      - /var/run/docker.sock:/var/run/docker.sock
 
       # Static + dynamic configuration (read-only).
       - ./config/traefik/traefik.yml:/etc/traefik/traefik.yml:ro

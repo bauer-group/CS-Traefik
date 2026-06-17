@@ -71,7 +71,13 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
       traefik.enable: "false"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Docker socket -- Watchtower stops/pulls/recreates containers, so it
+      # genuinely needs WRITE on the Docker API. No `:ro`: on a unix socket
+      # that flag only guards the inode, never the API, so it was pure
+      # theatre here (Watchtower already has full host-root reach via the
+      # socket). Treat this as the highest-privilege container in the stack;
+      # real scoping would need a docker-socket-proxy.
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       proxy-internal:
     # Resource cap. Watchtower idles between scheduled runs and only
