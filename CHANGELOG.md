@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/bauer-group/CS-Traefik/compare/v1.0.4...v1.1.0) (2026-06-23)
+
+### 🚀 Features
+
+* **deps:** floated default Traefik tag to the v3 major branch ([c422123](https://github.com/bauer-group/CS-Traefik/commit/c4221233722123db997dbd81f792ec465507531a))
+
 ## [1.0.4](https://github.com/bauer-group/CS-Traefik/compare/v1.0.3...v1.0.4) (2026-06-17)
 
 ### 🐛 Bug Fixes
