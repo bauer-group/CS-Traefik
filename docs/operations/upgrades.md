@@ -140,27 +140,33 @@ own cron for that).
 
 ## Pinning versus floating
 
-Default is `latest` for monitoring images, `v3.6` for Traefik. The
-`.env.example` documents how to pin:
+Default is `latest` for monitoring images, `v3` for Traefik. The
+Traefik default is a **floating major tag**: it tracks every v3.x
+minor/patch automatically but never jumps to v4. The `.env.example`
+documents how to pin tighter:
 
 ```env
-TRAEFIK_IMAGE_TAG=v3.6        # already pinned
+TRAEFIK_IMAGE_TAG=v3.6        # exact minor -- freezes minor/patch too
 PROMETHEUS_IMAGE_TAG=v2.55.0  # pin if compliance requires it
 GRAFANA_IMAGE_TAG=11.4.0
 LOKI_IMAGE_TAG=3.3.1
 ```
 
-Pin in regulated / regulated-industry environments where every
-container update needs change-ticket approval. Float `latest` for
-self-hosted personal / small-team setups where security patches via
-Watchtower are valued more than predictable release cadences.
+Pin an exact minor (`v3.6`) in regulated environments where every
+container update needs change-ticket approval. Keep the floating `v3`
+default for self-hosted setups where non-breaking minor/patch updates
+(and security fixes via Watchtower) are valued more than a frozen
+release cadence -- the major-tag boundary still protects you from an
+unattended v3 → v4 jump.
 
 ## Major-version upgrade (Traefik v3 → v4 in the future)
 
 When Traefik v4 ships:
 
 1. Read the upstream migration guide.
-2. **Don't** auto-update — this is exactly why we pin `TRAEFIK_IMAGE_TAG`.
+2. A v4 jump never happens by itself — the default `TRAEFIK_IMAGE_TAG=v3`
+   (and any exact-minor pin) resolves only within v3, so Watchtower
+   can't pull v4. Moving to v4 is always the deliberate step 4 below.
 3. Switch to staging cert resolver for testing:
    ```env
    LETSENCRYPT_CA=https://acme-staging-v02.api.letsencrypt.org/directory
@@ -174,17 +180,18 @@ When Traefik v4 ships:
    ```
    and `sudo ./traefik.sh restart`.
 
-If something breaks, roll back:
+If something breaks, roll back to the v3 line (the floating major, or
+an exact last-known-good minor if you need determinism):
 
 ```env
-TRAEFIK_IMAGE_TAG=v3.6
+TRAEFIK_IMAGE_TAG=v3        # or e.g. v3.6 to freeze on a known-good minor
 ```
 
 ```bash
 sudo ./traefik.sh update
 ```
 
-The old `v3.6` image is still in the registry — Docker pulls it
+The v3 images are still in the registry — Docker pulls them
 again. ACME storage is forward + backward compatible across v3
 minor versions.
 

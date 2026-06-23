@@ -66,7 +66,12 @@ services:
   # Traefik
   # ---------------------------------------------------------------------------
   traefik:
-    image: traefik:${TRAEFIK_IMAGE_TAG:-v3.6}
+    # Default floats on the v3 MAJOR tag: minor + patch releases flow in
+    # automatically (bugfixes / non-breaking features), but the tag can
+    # never resolve to v4 -- a major jump stays a deliberate .env change.
+    # Pin an exact minor (TRAEFIK_IMAGE_TAG=v3.6) in change-controlled
+    # environments where every image bump needs a ticket.
+    image: traefik:${TRAEFIK_IMAGE_TAG:-v3}
     container_name: ${STACK_NAME:-edgeproxy}-traefik
     hostname: traefik
     restart: unless-stopped

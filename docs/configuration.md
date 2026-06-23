@@ -47,7 +47,7 @@ Values:
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `TRAEFIK_IMAGE_TAG` | `v3.6` | Pin to a minor in production. Watchtower (if active) honours this -- a `latest` tag floats; a pinned tag stays. |
+| `TRAEFIK_IMAGE_TAG` | `v3` | Floats on the v3 major (minor + patch auto, no v4 jump). Pin an exact minor (e.g. `v3.6`) for change-controlled environments -- a pinned minor freezes the digest, so Watchtower (if active) stops updating it. |
 | `HTTP_PORT` | `80` | External HTTP port. Change if Traefik must coexist with another listener on 80. |
 | `HTTPS_PORT` | `443` | External HTTPS port. Used for both TCP (HTTP/1.1, HTTP/2) and UDP (HTTP/3 / QUIC). |
 | `LOG_LEVEL` | `INFO` | One of `ERROR / WARN / INFO / DEBUG / TRACE`. DEBUG logs every routing decision -- use only for active debugging. |

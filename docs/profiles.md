@@ -151,11 +151,13 @@ WATCHTOWER_SCHEDULE=0 0 4 * * 0   # Sun 04:00
 WATCHTOWER_SCHEDULE=0 0 */6 * * * # every 6 hours (aggressive)
 ```
 
-**Pinning a tag stops auto-update for that image**. If `.env` has
-`TRAEFIK_IMAGE_TAG=v3.6` and Watchtower checks for updates on
-`traefik:v3.6`, it sees the same digest → no update. To follow
-upstream major versions, pin to `v3` (Traefik's major-version tag) or
-`latest`.
+**Pinning an exact minor stops auto-update for that image**. The
+default `TRAEFIK_IMAGE_TAG=v3` is a floating major tag: when v3.7
+ships, `traefik:v3` resolves to a new digest and Watchtower rolls it
+in. Pin an exact minor (`TRAEFIK_IMAGE_TAG=v3.6`) and Watchtower sees
+the same digest on `traefik:v3.6` → no update. So: float `v3` to ride
+minor/patch automatically, pin `v3.6` to freeze. A `v4` jump never
+happens on the `v3` tag -- that's always a deliberate `.env` change.
 
 **Notifications**: set `WATCHTOWER_NOTIFICATIONS=slack` (or `email`,
 `telegram`, etc.) in `.env`. See `.env.example` for the full template.

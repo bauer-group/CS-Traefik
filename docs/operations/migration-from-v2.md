@@ -46,7 +46,7 @@ monitoring traffic.
 
 | Legacy | CS-Traefik |
 | --- | --- |
-| v2.11 | v3.6 LTS |
+| v2.11 | v3 LTS (floating major) |
 
 Traefik v3 has a few breaking changes from v2 that **don't affect**
 label-driven routing (which is what 99 % of stacks use):

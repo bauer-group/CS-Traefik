@@ -495,11 +495,17 @@ cmd_validate() {
         return 1
     fi
 
-    print_info "Traefik config dry-run ..."
+    # Validate against the SAME image tag the stack actually runs. The
+    # script never sources .env (it passes --env-file to compose), so read
+    # the pinned value explicitly; fall back to the v3 major-branch default.
+    local traefik_tag
+    traefik_tag=$(get_env_value TRAEFIK_IMAGE_TAG); traefik_tag=${traefik_tag:-v3}
+
+    print_info "Traefik config dry-run (traefik:$traefik_tag) ..."
     if docker run --rm \
         -v "$PROJECT_ROOT/config/traefik:/etc/traefik:ro" \
         --entrypoint /bin/sh \
-        traefik:v3.6 \
+        "traefik:$traefik_tag" \
         -c "traefik --configFile=/etc/traefik/traefik.yml --check 2>&1 || traefik --configFile=/etc/traefik/traefik.yml 2>&1 | head -5" 2>&1 | head -30
     then
         print_success "Traefik config syntax accepted."

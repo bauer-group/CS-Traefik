@@ -12,8 +12,8 @@ For deep documentation see [`docs/`](docs/).
 
 ## Highlights
 
-- **Traefik v3.6** (current LTS) with HTTP/3 (QUIC) and structured
-  JSON logs.
+- **Traefik v3** (current LTS major, floating tag — minor/patch
+  auto, no surprise v4) with HTTP/3 (QUIC) and structured JSON logs.
 - **Drop-in compatible** with the legacy v2.x EDGEPROXY stack: network
   name `EDGEPROXY`, entrypoints `web` + `web-secure`, default cert
   resolver `letsencrypt`. Existing app stacks attach without
