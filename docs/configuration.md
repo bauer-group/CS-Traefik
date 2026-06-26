@@ -69,7 +69,7 @@ reached via path-prefix routing on a dedicated `monitoring` entrypoint.
 | `MONITORING_BIND_V6` | `::1` | IPv6 bind. Set to `::` for LAN-accessible IPv6. Always set in lock-step with `MONITORING_BIND`. |
 | `MONITORING_HOST` | *(empty)* | Optional FQDN for HTTPS-on-443 admin access. **Pick a hostname that hosts no application** (e.g. `admin.bauer-group.com`). |
 | `MONITORING_BASE_URL` | `http://localhost:9090` | Used by Grafana / Prometheus / Alertmanager to build self-links. Set to `https://${MONITORING_HOST}` if `MONITORING_HOST` is set. |
-| `MONITORING_WHITELIST` | `127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12` | IP whitelist (CIDRs). Always enforced for admin surfaces. |
+| `MONITORING_WHITELIST` | `127.0.0.1/32, ::1/128, 100.65.0.1/32` | IP whitelist (CIDRs). Always enforced for admin surfaces. `100.65.0.1/32` = `proxy`-network gateway, required for SSH-tunnel access (docker-proxy masquerades the tunnel source to it). Add LAN/office CIDRs as needed. |
 | `MONITORING_USERS` | `admin/admin` (bcrypt) | htpasswd format with bcrypt. Generate via `echo $(htpasswd -nB admin) \| sed -e 's/\$/\$\$/g'`. **Change the default before exposing**. |
 
 See [`admin-access.md`](admin-access.md) for the three usage modes

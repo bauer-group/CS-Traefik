@@ -278,18 +278,20 @@ The split has three concrete benefits:
 Default in `.env.example`:
 
 ```env
-MONITORING_WHITELIST=127.0.0.1/32, ::1/128, 172.16.0.0/12, 192.168.0.0/16, 10.0.0.0/8
+MONITORING_WHITELIST=127.0.0.1/32, ::1/128, 100.65.0.1/32
 ```
 
 This covers:
 
 | CIDR | Meaning |
 | --- | --- |
-| `127.0.0.1/32` | IPv4 loopback (mode 1) |
-| `::1/128` | IPv6 loopback (mode 1) |
-| `192.168.0.0/16` | Private LAN -- common SOHO / corporate range |
-| `10.0.0.0/8` | Private LAN -- enterprise-allocated |
-| `172.16.0.0/12` | Private LAN -- Docker default bridge range |
+| `127.0.0.1/32` | IPv4 loopback |
+| `::1/128` | IPv6 loopback |
+| `100.65.0.1/32` | `proxy`-network gateway -- the source IP Traefik sees for SSH-tunnel access. `docker-proxy` masquerades the tunnel's `127.0.0.1` to this gateway, so without it the documented mode-1 tunnel returns `403 Forbidden`. See [known-limitations.md](operations/known-limitations.md#source-ip-munging-through-docker-port-forward). |
+
+Add private LAN ranges (`192.168.0.0/16`, `10.0.0.0/8`, `172.16.0.0/12`)
+or your office public range only as you actually need them — do not
+pre-add "just in case."
 
 ### Network-trust map
 

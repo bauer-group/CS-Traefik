@@ -181,25 +181,49 @@ Compose substitutes the `$` placeholders and corrupts the hash.
 
 ### Symptom: 403 Forbidden when hitting /dashboard
 
-Your IP isn't in `MONITORING_WHITELIST`. Check your apparent source IP:
+Your apparent source IP isn't in `MONITORING_WHITELIST`. The `403` comes
+from the `monitoring-whitelist` middleware (a Traefik IP gate) — *not*
+from BasicAuth, which would return `401 Unauthorized`. So if you see
+`403`, you already cleared the password; only the IP gate is blocking.
+
+Find the IP Traefik **actually saw** — do not guess it:
 
 ```bash
-# From the workstation that's getting 403
+# The ClientHost field on the rejected request is the source IP to allow
+docker exec edgeproxy-traefik sh -c \
+  "grep '\"entryPointName\":\"monitoring\"' /var/log/traefik/access.log | tail -5"
+```
+
+**Accessing via SSH tunnel (mode 1)?** `ClientHost` will be the
+proxy-network gateway `100.65.0.1`, *not* `127.0.0.1` — this is expected.
+A tunnel request to the host's `127.0.0.1:9090` binding is published into
+the Traefik container by `docker-proxy`, which masquerades the source to
+the bridge gateway (happens on Linux native too — see
+[known-limitations.md](known-limitations.md#source-ip-munging-through-docker-port-forward)).
+The shipped default already includes `100.65.0.1/32` for exactly this
+reason. If it was removed, re-add it:
+
+```env
+MONITORING_WHITELIST=127.0.0.1/32, ::1/128, 100.65.0.1/32
+```
+
+**Accessing a public FQDN (mode 3)?** Traffic arrives on 443 with the
+real client IP preserved. Check yours and add it:
+
+```bash
 curl -s https://api.ipify.org    # public IPv4
 curl -s https://api64.ipify.org  # public IPv6
 ```
 
-Add it to `.env`:
-
 ```env
-MONITORING_WHITELIST=127.0.0.1/32, ::1/128, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 203.0.113.42/32
+MONITORING_WHITELIST=127.0.0.1/32, ::1/128, 100.65.0.1/32, 203.0.113.42/32
 ```
 
-`sudo ./traefik.sh restart`.
+`sudo ./traefik.sh restart` after editing.
 
-If you're on CGNAT (mobile carrier, dual-stack-lite ISP), your
-apparent source IP changes per session — use a VPN with a static
-egress IP, or the SSH-tunnel approach (mode 1).
+If you're on CGNAT (mobile carrier, dual-stack-lite ISP), your apparent
+public IP changes per session — use a VPN with a static egress IP, or
+the SSH-tunnel approach (mode 1).
 
 ### Symptom: Dashboard at `127.0.0.1:9090/dashboard/` doesn't open
 

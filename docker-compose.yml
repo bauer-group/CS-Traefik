@@ -262,9 +262,23 @@ services:
 
       # ---- Middlewares used by both routers above ----
       # Defined here (not in dynamic/middlewares.yml) so they pick up
-      # ${DASHBOARD_USERS} / ${MONITORING_WHITELIST} from .env via Compose
+      # ${MONITORING_USERS} / ${MONITORING_WHITELIST} from .env via Compose
       # substitution -- one source of truth.
-      traefik.http.middlewares.monitoring-whitelist.ipallowlist.sourcerange: "${MONITORING_WHITELIST:-127.0.0.1/32, ::1/128}"
+      #
+      # The default whitelist includes 100.65.0.1/32 -- the gateway of the
+      # `proxy` network (see networks: block at the bottom of this file).
+      # This is REQUIRED for SSH-tunnel access, not optional: a request
+      # tunneled to the host's 127.0.0.1:9090 binding is published into the
+      # Traefik container by docker-proxy, which MASQUERADES the source to
+      # the bridge gateway. Traefik therefore sees 100.65.0.1, never
+      # 127.0.0.1 -- so a loopback-only whitelist returns 403 Forbidden on
+      # the documented SSH-tunnel path. This holds on Linux native Docker
+      # too: loopback-published ports always route through docker-proxy,
+      # so the masquerade is unconditional (independent of the daemon's
+      # userland-proxy flag). BasicAuth (MONITORING_USERS) stays the real
+      # auth wall; this entry only re-opens the coarse IP gate for the
+      # gateway-masqueraded loopback path.
+      traefik.http.middlewares.monitoring-whitelist.ipallowlist.sourcerange: "${MONITORING_WHITELIST:-127.0.0.1/32, ::1/128, 100.65.0.1/32}"
       traefik.http.middlewares.monitoring-auth.basicauth.users: "${MONITORING_USERS:-}"
       traefik.http.middlewares.monitoring-auth.basicauth.realm: "CS-Traefik Admin"
       traefik.http.middlewares.monitoring-auth.basicauth.removeheader: "true"

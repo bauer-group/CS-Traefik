@@ -880,8 +880,12 @@ EOF
             set_env MONITORING_BIND_V6   "::"
             set_env MONITORING_HOST      ""
             set_env MONITORING_BASE_URL  "http://localhost:9090"
-            # LAN-accessible: allow loopback + all RFC1918 ranges by default.
-            default_whitelist="127.0.0.1/32, ::1/128, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16"
+            # LAN-accessible: loopback + proxy gateway + all RFC1918 ranges.
+            # 100.65.0.1/32 (proxy-network gateway) keeps SSH-tunnel-to-
+            # localhost working; under Docker's userland-proxy the LAN
+            # client IPs also arrive masqueraded as this gateway, so it is
+            # the entry that actually matches -- BasicAuth is the real wall.
+            default_whitelist="127.0.0.1/32, ::1/128, 100.65.0.1/32, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16"
             ;;
         3)
             api_host=$(ask_validated "Admin FQDN (must host NO application)" "admin.${default_domain}" valid_hostname)
@@ -891,16 +895,24 @@ EOF
             set_env MONITORING_BASE_URL  "https://${api_host}"
             api_base_url="https://${api_host}"
             # Public FQDN: whitelist is the last line before BasicAuth, so
-            # default to loopback only -- operator MUST add their admin CIDR.
-            default_whitelist="127.0.0.1/32, ::1/128"
+            # default to loopback + proxy gateway only -- operator MUST add
+            # their admin CIDR. 100.65.0.1/32 keeps the always-on localhost
+            # SSH-tunnel path working (docker-proxy masquerades the tunnel
+            # source to the gateway); the public-FQDN path on 443 sees the
+            # real client IP and is unaffected.
+            default_whitelist="127.0.0.1/32, ::1/128, 100.65.0.1/32"
             ;;
         *)
             set_env MONITORING_BIND      "127.0.0.1"
             set_env MONITORING_BIND_V6   "::1"
             set_env MONITORING_HOST      ""
             set_env MONITORING_BASE_URL  "http://localhost:9090"
-            # Localhost-only listener: anything beyond loopback is misleading.
-            default_whitelist="127.0.0.1/32, ::1/128"
+            # Localhost-only listener. 100.65.0.1/32 = proxy-network gateway
+            # -- REQUIRED, not cosmetic: docker-proxy masquerades the SSH-
+            # tunnel source (127.0.0.1) to the gateway before Traefik sees
+            # it, so loopback-only would 403 the tunnel path. BasicAuth
+            # stays the real auth wall.
+            default_whitelist="127.0.0.1/32, ::1/128, 100.65.0.1/32"
             ;;
     esac
 
@@ -1360,8 +1372,18 @@ generate_env_with_migration() {
     fi
 
     if [[ -n "${V2_OLD_ENV[API_WHITELIST]:-}" ]]; then
-        set_env MONITORING_WHITELIST "${V2_OLD_ENV[API_WHITELIST]}"
-        print_info "API_WHITELIST -> MONITORING_WHITELIST migrated: ${V2_OLD_ENV[API_WHITELIST]}"
+        # Preserve the operator's v2 policy verbatim, but ensure the proxy-
+        # network gateway (100.65.0.1) is present. SSH-tunnel access lands at
+        # Traefik masqueraded as this gateway (docker-proxy on the loopback-
+        # published port), so a v2 whitelist that predates the v3 topology
+        # would 403 the tunnel path. BasicAuth still gates everything; this
+        # only re-opens the coarse IP gate for the masqueraded loopback.
+        local migrated_whitelist="${V2_OLD_ENV[API_WHITELIST]}"
+        if [[ "$migrated_whitelist" != *"100.65.0.1"* ]]; then
+            migrated_whitelist="${migrated_whitelist}, 100.65.0.1/32"
+        fi
+        set_env MONITORING_WHITELIST "$migrated_whitelist"
+        print_info "API_WHITELIST -> MONITORING_WHITELIST migrated: ${migrated_whitelist}"
     fi
 
     if [[ -n "${V2_OLD_ENV[API_PORT]:-}" && "${V2_OLD_ENV[API_PORT]}" != "9090" ]]; then

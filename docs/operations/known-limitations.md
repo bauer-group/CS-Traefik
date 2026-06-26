@@ -79,20 +79,32 @@ edge-proxy hosts where new disks/mounts are rare events.
 ### Source-IP munging through Docker port-forward
 
 When the host loopback `127.0.0.1:<HOST_PORT>` is forwarded to a
-container port, Docker Desktop on Windows rewrites the source IP to
-the gateway of the first network attached to the container (e.g.
-`100.65.0.1` for our public network). Linux native Docker preserves
-`127.0.0.1`.
+container port, Docker rewrites the source IP to the gateway of the
+first network attached to the container (`100.65.0.1` for our `proxy`
+network). Traefik therefore sees `100.65.0.1`, never `127.0.0.1`.
 
-Effect on this stack: testing the admin entrypoint via
-`curl 127.0.0.1:9090/dashboard/` from the Docker Desktop host
-returns 403 (IP whitelist rejects 100.65.0.1) even with valid
-BasicAuth credentials. SSH-tunnelling to a real Linux deployment
-works correctly because the source IP IS 127.0.0.1 there.
+This is **NOT** Docker-Desktop/Windows-specific (an earlier version of
+this note claimed Linux native preserves `127.0.0.1` -- that is wrong).
+Loopback-published ports always route through the `docker-proxy`
+userland helper, because the kernel cannot DNAT loopback-destined
+packets straight into the bridge. `docker-proxy` opens a fresh
+connection to the container from the bridge gateway, so the masquerade
+happens on Linux native Docker too -- independent of the daemon's
+`userland-proxy` flag. Verified on a production Linux host: an SSH
+tunnel to `127.0.0.1:9090` lands at Traefik as `ClientHost: 100.65.0.1`.
 
-Workaround for local development: temporarily add `100.65.0.0/16` to
-`MONITORING_WHITELIST` in your local `.env`. Do NOT commit this change --
-it is platform-specific debug aid, not a production policy.
+Effect on this stack: a request to the admin entrypoint via
+`curl 127.0.0.1:9090/dashboard/` (locally or through an SSH tunnel)
+arrives as `100.65.0.1`. The IP whitelist must therefore include
+`100.65.0.1/32` for the tunnel path to clear the gate (BasicAuth still
+applies on top).
+
+Resolution: the shipped default `MONITORING_WHITELIST` now includes
+`100.65.0.1/32` precisely so SSH-tunnel access works out of the box.
+No `.env` edit is needed for the standard tunnel workflow. (If you ever
+see a `403` on the tunnel and the gateway entry is missing, re-add it --
+do NOT broaden to `100.65.0.0/16`, which would expose the admin gate to
+the whole public app network.)
 
 ## Areas not exercised in the local validation pass
 
