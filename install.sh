@@ -1115,6 +1115,13 @@ V2_API_BIND=""
 V2_API_BIND_V6=""
 V2_API_HOSTNAME=""
 declare -A V2_OLD_ENV   # parsed key=value pairs from old .env
+# Application containers (s3, seafile, ftp, ...) that attach to the public
+# EDGEPROXY network as `external: true`. They are NOT part of the Traefik
+# stack, so Phase 3 'compose down' never touches them -- yet their live
+# endpoints pin the network open and block 'docker network rm'. Phase 3b
+# detaches them (recording "<container>|<network>" here) and Phase 8b
+# reconnects them once v3 has rebuilt the network with an identical name.
+declare -a V2_REATTACH=()
 
 # Run a command given as ARGV (no eval). The command MUST succeed --
 # `set -e` aborts the upgrade if it fails. Use for steps where failure is
@@ -1167,7 +1174,12 @@ detect_v2_stack() {
         print_warning "Image references found:"
         grep -E "image:" "$dir/docker-compose.yml" | head -3 | sed 's/^/    /'
         if [[ "$AUTO_UPGRADE" != true ]]; then
-            ask_yes_no "Continue anyway?" "n" || exit 0
+            # ask_yes_no echoes "yes"/"no" -- compare the string, never the
+            # exit code (which is always 0 because the trailing echo succeeds).
+            if [[ "$(ask_yes_no "Continue anyway?" N)" == "no" ]]; then
+                print_info "Aborted."
+                exit 0
+            fi
         fi
     fi
 
@@ -1249,6 +1261,9 @@ $(if [[ -n "$V2_DETECTED_PROJECTS" ]]; then echo "$V2_DETECTED_PROJECTS" | sed '
 
 Old networks to remove (volumes are preserved):
       EDGEPROXY, EDGEPROXY_INTERNAL, plus any matching by name
+      Application containers attached to these networks (e.g. s3, seafile,
+      ftp) are detached first so the network can be rebuilt, then reconnected
+      automatically once v3 has recreated it (same name + subnet).
 
 Settings migrated from old .env (v2 KEY -> v3 KEY):
       API_USERS              -> MONITORING_USERS      (bcrypt hash preserved)
@@ -1313,18 +1328,69 @@ stop_v2_stack() {
 }
 
 remove_v2_networks() {
-    print_section "Phase 3b: Remove legacy networks (volumes preserved)"
+    print_section "Phase 3b: Detach apps + remove legacy networks (volumes preserved)"
     local nets=( "${V2_OLD_ENV[NETWORK_NAME]:-EDGEPROXY}" "${V2_OLD_ENV[NETWORK_NAME]:-EDGEPROXY}_INTERNAL" "EDGEPROXY" "EDGEPROXY_INTERNAL" "edgeproxy" "edgeproxy_internal" )
     local seen=" "
     for net in "${nets[@]}"; do
         [[ -z "$net" || "$seen" == *" $net "* ]] && continue
         seen="$seen$net "
-        if docker network inspect "$net" >/dev/null 2>&1; then
-            print_info "docker network rm $net"
-            upgrade_try_or_dry docker network rm "$net"
+        docker network inspect "$net" >/dev/null 2>&1 || continue
+
+        # Any container still attached here after Phase 3 is a foreign app
+        # stack (declared this network `external: true`). Its live endpoint
+        # blocks 'docker network rm' with "has active endpoints". Detach each
+        # so the network can be torn down and rebuilt by v3 with an identical
+        # name + subnet; Phase 8b reconnects them once the new network exists.
+        # Force-disconnect (no stop) keeps the app processes running -- they are
+        # unreachable anyway while Traefik itself is down, so there is nothing
+        # to gain from stopping them, and reconnecting a live container avoids
+        # any stale network-ID-on-start reconnection failure.
+        local attached
+        attached=$(docker network inspect -f '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' "$net" 2>/dev/null || true)
+        if [[ -n "$attached" ]]; then
+            while IFS= read -r c; do
+                [[ -z "$c" ]] && continue
+                print_info "detaching '$c' from '$net' (reattached after v3 start)"
+                upgrade_try_or_dry docker network disconnect -f "$net" "$c"
+                V2_REATTACH+=( "$c|$net" )
+            done <<< "$attached"
         fi
+
+        print_info "docker network rm $net"
+        upgrade_try_or_dry docker network rm "$net"
     done
+    if [[ ${#V2_REATTACH[@]} -gt 0 ]]; then
+        print_warning "Detached ${#V2_REATTACH[@]} application endpoint(s); these reattach in Phase 8b."
+    fi
     print_success "Legacy networks removed (where present)."
+}
+
+# Phase 8b -- Reattach the application containers detached in Phase 3b to the
+# rebuilt network. v3 recreates the public network with the SAME name (and
+# byte-identical subnet), so reconnecting by name restores reachability and
+# Traefik rediscovers each backend via the docker 'connect' event. The app
+# processes never stopped, so no restart is required.
+reattach_app_containers() {
+    [[ ${#V2_REATTACH[@]} -eq 0 ]] && return 0
+    print_section "Phase 8b: Reattach application containers to rebuilt network"
+    local entry c net
+    for entry in "${V2_REATTACH[@]}"; do
+        c="${entry%%|*}"; net="${entry##*|}"
+        if ! docker network inspect "$net" >/dev/null 2>&1; then
+            print_warning "network '$net' is missing -- reconnect '$c' manually once it exists."
+            continue
+        fi
+        # A restart:always app may already have reconnected on its own. Use an
+        # exact map-key lookup (not a word-grep, which would conflate EDGEPROXY
+        # with EDGEPROXY-INTERNAL since '-' is a word boundary).
+        if [[ "$(docker inspect -f "{{if index .NetworkSettings.Networks \"$net\"}}yes{{end}}" "$c" 2>/dev/null)" == "yes" ]]; then
+            print_info "'$c' already attached to '$net' -- skipping."
+            continue
+        fi
+        print_info "reconnecting '$c' -> '$net'"
+        upgrade_try_or_dry docker network connect "$net" "$c"
+    done
+    print_success "Application containers reattached to '${V2_REATTACH[0]##*|}'."
 }
 
 # Phase 4 -- Backup ----------------------------------------------------------
@@ -1527,8 +1593,11 @@ upgrade_from_v2() {
     print_upgrade_plan "$source" "$V2_BACKUP_DIR"
 
     if [[ "$AUTO_UPGRADE" != true && "$DRY_RUN" != true ]]; then
-        if ! ask_yes_no "Proceed with upgrade?" "y"; then
-            print_info "Aborted."
+        # ask_yes_no echoes "yes"/"no" -- its exit code is always 0, so it MUST
+        # be compared as a string. Using `if ! ask_yes_no ...` silently ignored
+        # the operator's answer and always proceeded.
+        if [[ "$(ask_yes_no "Proceed with upgrade?" Y)" == "no" ]]; then
+            print_info "Aborted by operator -- no changes made."
             exit 0
         fi
     fi
@@ -1563,6 +1632,7 @@ upgrade_from_v2() {
         exit 1
     }
 
+    reattach_app_containers
     verify_upgrade || true
     print_upgrade_summary "$V2_BACKUP_DIR"
 }
