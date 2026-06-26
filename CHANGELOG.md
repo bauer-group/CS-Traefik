@@ -1,3 +1,9 @@
+## [1.1.1](https://github.com/bauer-group/CS-Traefik/compare/v1.1.0...v1.1.1) (2026-06-26)
+
+### 🐛 Bug Fixes
+
+* **monitoring:** added proxy gateway to admin IP whitelist default ([1883f91](https://github.com/bauer-group/CS-Traefik/commit/1883f914ee3325e646969157c8e7e3d8174d1dfa))
+
 ## [1.1.0](https://github.com/bauer-group/CS-Traefik/compare/v1.0.4...v1.1.0) (2026-06-23)
 
 ### 🚀 Features
