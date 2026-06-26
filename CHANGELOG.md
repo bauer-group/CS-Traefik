@@ -1,3 +1,9 @@
+## [1.2.0](https://github.com/bauer-group/CS-Traefik/compare/v1.1.2...v1.2.0) (2026-06-26)
+
+### 🚀 Features
+
+* **monitoring:** defaulted Grafana week start to Monday ([5442c64](https://github.com/bauer-group/CS-Traefik/commit/5442c6477bcfdd6f3bb0b7f589e3040148204442))
+
 ## [1.1.2](https://github.com/bauer-group/CS-Traefik/compare/v1.1.1...v1.1.2) (2026-06-26)
 
 ### 🐛 Bug Fixes
