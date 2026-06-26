@@ -1,3 +1,9 @@
+## [1.1.2](https://github.com/bauer-group/CS-Traefik/compare/v1.1.1...v1.1.2) (2026-06-26)
+
+### 🐛 Bug Fixes
+
+* **upgrade:** honored abort prompt and freed in-use legacy network ([0601186](https://github.com/bauer-group/CS-Traefik/commit/0601186b8c6a228c7a83f877c8d12fe8bb846b1e))
+
 ## [1.1.1](https://github.com/bauer-group/CS-Traefik/compare/v1.1.0...v1.1.1) (2026-06-26)
 
 ### 🐛 Bug Fixes
