@@ -236,6 +236,9 @@ services:
       GF_SERVER_ROOT_URL: "${MONITORING_BASE_URL:-http://localhost:9090}/grafana"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
 
+      # Display defaults -- ISO week (Monday) for all dashboards/pickers
+      GF_DATE_FORMATS_DEFAULT_WEEK_START: "monday"
+
       # Anti-feature toggles
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
