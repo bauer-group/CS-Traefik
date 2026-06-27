@@ -154,7 +154,7 @@
       "type": "logs"
     }
   ],
-  "refresh": "1m",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": ["edgeproxy", "client", "abuse", "security"],
   "templating": { "list": [] },

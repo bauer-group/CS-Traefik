@@ -262,7 +262,7 @@
       }
     ]
   },
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": ["edgeproxy", "traefik", "http", "traffic"],
   "templating": {

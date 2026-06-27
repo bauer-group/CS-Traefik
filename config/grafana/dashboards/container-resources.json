@@ -245,7 +245,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": ["edgeproxy", "resources", "containers", "system"],
   "templating": { "list": [

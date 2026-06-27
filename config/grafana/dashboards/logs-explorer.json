@@ -57,7 +57,7 @@
       "type": "logs"
     }
   ],
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": ["edgeproxy", "logs", "loki"],
   "templating": {

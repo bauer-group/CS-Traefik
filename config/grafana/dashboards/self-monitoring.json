@@ -214,7 +214,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": ["edgeproxy", "self-monitoring", "prometheus", "loki"],
   "templating": { "list": [] },

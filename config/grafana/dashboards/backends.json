@@ -205,7 +205,7 @@
       { "datasource": { "type": "prometheus", "uid": "prometheus" }, "enable": true, "iconColor": "red", "name": "Firing Alerts", "expr": "ALERTS{alertstate=\"firing\"}", "step": "30s", "titleFormat": "{{ alertname }}", "tagKeys": "severity,name,container,service" }
     ]
   },
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": ["edgeproxy", "backends", "services", "traefik"],
   "templating": {

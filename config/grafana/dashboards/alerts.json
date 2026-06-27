@@ -231,7 +231,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": ["edgeproxy", "alerts", "alertmanager", "prometheus"],
   "templating": { "list": [] },

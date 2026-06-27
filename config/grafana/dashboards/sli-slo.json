@@ -133,7 +133,7 @@
       "type": "table"
     }
   ],
-  "refresh": "1m",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": ["edgeproxy", "slo", "sli", "availability"],
   "templating": {
