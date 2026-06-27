@@ -1,3 +1,9 @@
+## [1.5.0](https://github.com/bauer-group/CS-Traefik/compare/v1.4.0...v1.5.0) (2026-06-27)
+
+### 🚀 Features
+
+* **monitoring:** raised Grafana memory and Prometheus retention defaults ([a1bb8df](https://github.com/bauer-group/CS-Traefik/commit/a1bb8df635563a1a411fe5afd84d41131d7554c2))
+
 ## [1.4.0](https://github.com/bauer-group/CS-Traefik/compare/v1.3.0...v1.4.0) (2026-06-27)
 
 ### 🚀 Features
