@@ -236,6 +236,28 @@ services:
       GF_SERVER_ROOT_URL: "${MONITORING_BASE_URL:-http://localhost:9090}/grafana"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
 
+      # Landing page -- make EDGEPROXY-Home the org home dashboard instead of
+      # Grafana's stock "Welcome to Grafana" splash (tutorials + blog feed).
+      # Points at the provisioned JSON by container path. This is the
+      # provisioning-friendly equivalent of "star + set as home": it applies
+      # org-wide, needs no signed-in user (we run anonymous-Admin with the
+      # login form disabled, so per-user stars cannot persist), and survives
+      # container recreation because the file is bind-mounted read-only.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/home.json"
+
+      # Disable Grafana Live (the real-time WebSocket channel at
+      # /grafana/api/live/ws). WHY: the edge auth wall is Traefik BasicAuth,
+      # but browsers do NOT reliably attach cached BasicAuth credentials to a
+      # WebSocket handshake. Live therefore opens the WS, Traefik's
+      # monitoring-auth returns 401, Grafana reconnects, and the operator sees
+      # the BasicAuth prompt re-appear "again and again". Every dashboard in
+      # this stack uses 30s polling refresh -- none stream over Live -- so
+      # turning it off removes the auth-loop with zero feature loss. The only
+      # thing that stops working is live log tailing in Explore (range queries
+      # with refresh still work). Set >0 in a compose overlay if you ever add
+      # a genuinely streaming panel and front it with a non-BasicAuth path.
+      GF_LIVE_MAX_CONNECTIONS: "0"
+
       # Display defaults -- ISO week (Monday) for all dashboards/pickers
       GF_DATE_FORMATS_DEFAULT_WEEK_START: "monday"
 
@@ -617,4 +639,58 @@ services:
         limits:
           cpus: "${CADVISOR_CPU_LIMIT:-0.5}"
           memory: ${CADVISOR_MEMORY_LIMIT:-384m}
+    logging: *default-logging
+
+  # ---------------------------------------------------------------------------
+  # process-exporter -- per-process metrics (internal only)
+  # ---------------------------------------------------------------------------
+  # Complements cAdvisor: cAdvisor measures cgroups (whole containers),
+  # process-exporter reads host /proc and attributes CPU / RSS / disk-IO /
+  # threads / open-FDs to individual processes (grouped by command name in
+  # config/process-exporter/process-exporter.yml). Backs the Process Detail
+  # dashboard. Scraped by Prometheus at process-exporter:9256 over the
+  # proxy-internal network -- no host port, no Traefik route.
+  process-exporter:
+    image: ncabatoff/process-exporter:${PROCESS_EXPORTER_IMAGE_TAG:-latest}
+    container_name: ${STACK_NAME:-edgeproxy}-process-exporter
+    hostname: process-exporter
+    restart: unless-stopped
+    profiles: [monitoring]
+    # pid: host -- share the host PID namespace so the exporter sees EVERY
+    # process on the box, not just its own. Without it process-exporter
+    # only sees PID 1 (itself) and reports almost nothing.
+    pid: "host"
+    cap_drop:
+      - ALL
+    # SYS_PTRACE -- lets the (otherwise cap-stripped) exporter read
+    # /proc/<pid>/cmdline & stat of processes owned by other users even on
+    # hosts hardened with `hidepid=2`. Without it, on a hidepid host the
+    # exporter would silently miss most processes. On a default host it is
+    # harmless (cmdline/stat are world-readable anyway).
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - no-new-privileges:true
+    oom_score_adj: 200
+    command:
+      - "--procfs=/host/proc"
+      - "-config.path=/config/process-exporter.yml"
+    environment:
+      TZ: ${TIME_ZONE:-Etc/UTC}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      traefik.enable: "false"
+    volumes:
+      - /proc:/host/proc:ro
+      - ./config/process-exporter:/config:ro
+    networks:
+      proxy-internal:
+    # Resource cap. process-exporter is light -- it walks /proc once per
+    # scrape. Cap guards against a pathological process-table size
+    # (thousands of short-lived PIDs) spiking the walk cost.
+    deploy:
+      resources:
+        limits:
+          cpus: "${PROCESS_EXPORTER_CPU_LIMIT:-0.25}"
+          memory: ${PROCESS_EXPORTER_MEMORY_LIMIT:-128m}
     logging: *default-logging

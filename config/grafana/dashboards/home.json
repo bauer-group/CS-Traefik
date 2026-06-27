@@ -1,45 +1,40 @@
 {
-  "description": "Landing dashboard -- list of all EDGEPROXY dashboards with descriptions, plus a few headline stats. Set this as Grafana's default dashboard via Profile -> Preferences.",
+  "description": "Landing dashboard -- stack health at a glance plus direct navigation to every EDGEPROXY dashboard. Provisioned as the Grafana home page via GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH.",
   "editable": true,
   "graphTooltip": 0,
+  "links": [
+    {
+      "asDropdown": true,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": ["edgeproxy"],
+      "targetBlank": false,
+      "title": "Dashboards",
+      "tooltip": "Jump to any EDGEPROXY dashboard",
+      "type": "dashboards"
+    },
+    { "asDropdown": false, "icon": "dashboard", "tags": [], "targetBlank": true, "title": "Traefik", "tooltip": "Traefik router/service dashboard", "type": "link", "url": "/dashboard/" },
+    { "asDropdown": false, "icon": "bolt", "tags": [], "targetBlank": true, "title": "Alertmanager", "tooltip": "Silences & alert groups", "type": "link", "url": "/alertmanager/" },
+    { "asDropdown": false, "icon": "doc", "tags": [], "targetBlank": true, "title": "Prometheus", "tooltip": "Raw query / target inspection", "type": "link", "url": "/prometheus/" }
+  ],
   "panels": [
     {
-      "datasource": { "type": "grafana", "uid": "-- Dashboards --" },
-      "description": "All EDGEPROXY dashboards (auto-listed by tag). Click any title to open.",
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [ { "color": "green", "value": null } ] } } },
-      "gridPos": { "h": 14, "w": 12, "x": 0, "y": 0 },
-      "id": 1,
-      "options": {
-        "displayMode": "list",
-        "headings": false,
-        "maxItems": 20,
-        "query": "",
-        "showHeadings": true,
-        "showRecentlyViewed": false,
-        "showSearch": false,
-        "showStarred": false,
-        "tags": ["edgeproxy"]
-      },
-      "title": "Dashboards in this stack",
-      "type": "dashlist"
-    },
-    {
       "datasource": { "type": "grafana", "uid": "-- Grafana --" },
-      "description": "Dashboard quick-reference -- what each one is for and when to look at it.",
-      "gridPos": { "h": 14, "w": 12, "x": 12, "y": 0 },
-      "id": 2,
+      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "id": 10,
       "options": {
         "code": { "language": "plaintext", "showLineNumbers": false, "showMiniMap": false },
-        "content": "## Dashboard guide\n\n**Overview** -- Single pane summary. KPIs, request rate, host gauges, recent 5xx logs. *First glance.*\n\n**HTTP Traffic** -- Top routers/services, latency heatmap, status code stack, bandwidth. *Traffic shape.*\n\n**Backends** -- Per-service open connections, retries, latency matrix, recent backend errors. *Which backend is misbehaving?*\n\n**TLS & Certificates** -- All certs sorted by expiry, ACME activity log. *Renewal planning.*\n\n**Alerts** -- Currently firing alerts, alert history, rule eval health, silences. *First stop on a page.*\n\n**SLI / SLO** -- Availability, p95 latency, error budget burn (multi-window). *SLO compliance review.*\n\n**Client Analysis** -- Top source IPs, abuse signals, probe-pattern hits. *Defensive triage.*\n\n**Containers** -- Per-container CPU/Mem/Net/IO, restarts, OOM events. *Resource health.*\n\n**Logs Explorer** -- Free-form Loki search across all containers. *Open-ended investigation.*\n\n**Self-Monitoring** -- Prometheus/Loki internals, scrape pool health, cardinality trend. *Monitoring of monitoring.*\n\n---\n\n## Quick links\n\n- [Traefik dashboard](/dashboard/) (proxy itself, not Grafana)\n- [Alertmanager](/alertmanager/) (silence creation)\n- [Prometheus](/prometheus/) (raw query / target inspection)",
+        "content": "### EDGEPROXY &middot; Edge Proxy Observability\nTraefik v3 reverse-proxy fleet &mdash; traffic, reliability, security &amp; system load at a glance. Use the **Dashboards** menu (top-right) or the navigation panel below to drill in.",
         "mode": "markdown"
       },
       "pluginVersion": "10.4.0",
-      "title": "What lives where",
+      "transparent": true,
       "type": "text"
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 3 },
       "id": 100,
       "panels": [],
       "title": "Stack Health (live)",
@@ -48,8 +43,8 @@
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "description": "Traefik process up. 0 = stack is offline.",
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }, "unit": "short" } },
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 15 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }, "unit": "short", "mappings": [ { "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } } ] } },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 4 },
       "id": 3,
       "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "up{job=\"traefik\"}", "refId": "A" } ],
@@ -60,7 +55,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "description": "Currently firing alerts. >0 means action required.",
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }, "unit": "short", "links": [ { "title": "Open Alerts dashboard", "url": "/grafana/d/edgeproxy-alerts" } ] } },
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 15 },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 4 },
       "id": 4,
       "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(ALERTS{alertstate=\"firing\"}) or vector(0)", "refId": "A" } ],
@@ -71,7 +66,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "description": "Total request rate to all backends.",
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] }, "unit": "reqps", "links": [ { "title": "Open HTTP Traffic dashboard", "url": "/grafana/d/edgeproxy-http-traffic" } ] } },
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 15 },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 4 },
       "id": 5,
       "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total[1m]))", "refId": "A" } ],
@@ -82,7 +77,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "description": "5xx error ratio over 5min. Healthy stack stays green.",
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.005 }, { "color": "red", "value": 0.02 } ] }, "unit": "percentunit", "links": [ { "title": "Open Backends dashboard", "url": "/grafana/d/edgeproxy-backends" } ] } },
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 15 },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 4 },
       "id": 6,
       "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(rate(traefik_service_requests_total{code=~\"5..\"}[5m])) / clamp_min(sum(rate(traefik_service_requests_total[5m])), 0.001)", "refId": "A" } ],
@@ -93,7 +88,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "description": "p95 backend response time over 5 min.",
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.4 }, { "color": "red", "value": 0.5 } ] }, "unit": "s", "links": [ { "title": "Open SLI/SLO dashboard", "url": "/grafana/d/edgeproxy-slo" } ] } },
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 15 },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 4 },
       "id": 7,
       "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(traefik_service_request_duration_seconds_bucket[5m])) by (le))", "refId": "A" } ],
@@ -104,12 +99,48 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "description": "Days until the cert that expires soonest. < 14 = renewal-now territory.",
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 14 }, { "color": "green", "value": 30 } ] }, "unit": "d", "links": [ { "title": "Open TLS dashboard", "url": "/grafana/d/edgeproxy-tls" } ] } },
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 15 },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 4 },
       "id": 8,
       "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
       "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "min(traefik_tls_certs_not_after - time()) / 86400", "refId": "A" } ],
       "title": "Cert Expiry",
       "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 8 },
+      "id": 101,
+      "panels": [],
+      "title": "Navigate",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+      "description": "Every EDGEPROXY dashboard, grouped by purpose. Click any title to open it.",
+      "gridPos": { "h": 15, "w": 12, "x": 0, "y": 9 },
+      "id": 1,
+      "options": {
+        "code": { "language": "plaintext", "showLineNumbers": false, "showMiniMap": false },
+        "content": "## Dashboards\n\n**Traffic &amp; Performance**\n- [Overview](/grafana/d/edgeproxy-overview) &mdash; single-pane stack summary\n- [HTTP Traffic](/grafana/d/edgeproxy-http-traffic) &mdash; routers, latency, status codes\n- [Backends](/grafana/d/edgeproxy-backends) &mdash; per-service connections &amp; errors\n\n**Reliability**\n- [SLI / SLO](/grafana/d/edgeproxy-slo) &mdash; availability, error-budget burn\n- [Alerts](/grafana/d/edgeproxy-alerts) &mdash; firing alerts, history, silences\n- [TLS &amp; Certificates](/grafana/d/edgeproxy-tls) &mdash; expiry, ACME activity\n\n**System &amp; Security**\n- [Resource Monitor](/grafana/d/edgeproxy-resources) &mdash; CPU / RAM / Net / IOPS load &nbsp;`new`\n- [Process Detail](/grafana/d/edgeproxy-processes) &mdash; per-process CPU / RAM / IO / FDs &nbsp;`new`\n- [Containers](/grafana/d/edgeproxy-containers) &mdash; per-container health &amp; restarts\n- [Client Analysis](/grafana/d/edgeproxy-clients) &mdash; top source IPs, abuse signals\n\n**Logs &amp; Meta**\n- [Logs Explorer](/grafana/d/edgeproxy-logs) &mdash; free-form Loki search\n- [Self-Monitoring](/grafana/d/edgeproxy-self-monitoring) &mdash; monitoring of monitoring\n\n---\n**Admin tools** &middot; [Traefik dashboard](/dashboard/) &middot; [Prometheus](/prometheus/) &middot; [Alertmanager](/alertmanager/)",
+        "mode": "markdown"
+      },
+      "pluginVersion": "10.4.0",
+      "title": "Dashboards in this stack",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+      "description": "What each dashboard is for and when to look at it.",
+      "gridPos": { "h": 15, "w": 12, "x": 12, "y": 9 },
+      "id": 2,
+      "options": {
+        "code": { "language": "plaintext", "showLineNumbers": false, "showMiniMap": false },
+        "content": "## What lives where\n\n**Overview** &mdash; KPIs, request rate, host gauges, recent 5xx logs. *First glance.*\n\n**HTTP Traffic** &mdash; Top routers/services, latency heatmap, status-code stack, bandwidth. *Traffic shape.*\n\n**Backends** &mdash; Per-service open connections, retries, latency matrix, recent errors. *Which backend is misbehaving?*\n\n**TLS &amp; Certificates** &mdash; All certs sorted by expiry, ACME activity log. *Renewal planning.*\n\n**Alerts** &mdash; Currently firing alerts, alert history, rule-eval health, silences. *First stop on a page.*\n\n**SLI / SLO** &mdash; Availability, p95 latency, error-budget burn (multi-window). *SLO compliance review.*\n\n**Resource Monitor** &mdash; Per-container CPU / RAM / network / disk IOPS ranked against host capacity. *Who is loading the box?*\n\n**Process Detail** &mdash; Per-process CPU / RAM / disk I/O / threads / file descriptors (process-exporter). *Which process inside the container?*\n\n**Containers** &mdash; Per-container CPU/Mem/Net/IO, restarts, OOM events. *Resource health.*\n\n**Client Analysis** &mdash; Top source IPs, abuse signals, probe-pattern hits. *Defensive triage.*\n\n**Logs Explorer** &mdash; Free-form Loki search across all containers. *Open-ended investigation.*\n\n**Self-Monitoring** &mdash; Prometheus/Loki internals, scrape-pool health, cardinality trend. *Monitoring of monitoring.*",
+        "mode": "markdown"
+      },
+      "pluginVersion": "10.4.0",
+      "title": "What lives where",
+      "type": "text"
     }
   ],
   "refresh": "30s",
@@ -120,6 +151,6 @@
   "timezone": "",
   "title": "EDGEPROXY -- Home",
   "uid": "edgeproxy-home",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

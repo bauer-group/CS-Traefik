@@ -77,6 +77,17 @@ scrape_configs:
         labels:
           service: cadvisor
 
+  # Per-process metrics (CPU/RSS/IO/threads/FDs grouped by command name).
+  # cAdvisor measures cgroups (= whole containers); process-exporter reads
+  # host /proc and breaks usage down to individual processes -- answers
+  # "WHICH process inside (or outside) a container is loading the box".
+  # Backs the Process Detail dashboard.
+  - job_name: process-exporter
+    static_configs:
+      - targets: ["process-exporter:9256"]
+        labels:
+          service: process-exporter
+
   # Loki self-metrics
   - job_name: loki
     static_configs:

@@ -1,0 +1,205 @@
+{
+  "description": "Per-process resource detail from process-exporter (host /proc). cAdvisor stops at the container boundary; this drills into the individual processes -- which command is burning CPU, holding RAM, doing the I/O, leaking threads or file descriptors. Processes are grouped by command name.",
+  "editable": true,
+  "graphTooltip": 1,
+  "annotations": {
+    "list": [
+      { "builtIn": 1, "datasource": { "type": "grafana", "uid": "-- Grafana --" }, "enable": true, "hide": true, "iconColor": "rgba(0, 211, 255, 1)", "name": "Annotations & Alerts", "type": "dashboard" }
+    ]
+  },
+  "links": [
+    { "asDropdown": true, "icon": "external link", "includeVars": true, "keepTime": true, "tags": ["edgeproxy"], "targetBlank": false, "title": "Dashboards", "type": "dashboards" }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": [],
+      "title": "Process Totals",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Distinct process groups (command names) currently tracked.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] }, "unit": "short" } },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "count(namedprocess_namegroup_num_procs{groupname=~\"$groupname\"})", "refId": "A" } ],
+      "title": "Process Groups",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Total running processes across the selected groups.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] }, "unit": "short" } },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(namedprocess_namegroup_num_procs{groupname=~\"$groupname\"})", "refId": "A" } ],
+      "title": "Processes",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Total threads. A steadily climbing number with flat process count = a thread leak.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] }, "unit": "short" } },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(namedprocess_namegroup_num_threads{groupname=~\"$groupname\"})", "refId": "A" } ],
+      "title": "Threads",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Total open file descriptors. Climbing with flat workload = an FD leak heading for 'too many open files'.",
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] }, "unit": "short" } },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "id": 4,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(namedprocess_namegroup_open_filedesc{groupname=~\"$groupname\"})", "refId": "A" } ],
+      "title": "Open FDs",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "panels": [],
+      "title": "Top Processes (right now)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Every process group ranked by current CPU, with its memory (resident set), process/thread counts and open file descriptors side by side. The single 'where is my box going' table.",
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "filterable": true }, "thresholds": { "mode": "absolute", "steps": [ { "color": "text", "value": null } ] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "CPU Cores" }, "properties": [ { "id": "unit", "value": "short" }, { "id": "decimals", "value": 3 }, { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient" } }, { "id": "max", "value": 1 } ] },
+          { "matcher": { "id": "byName", "options": "RSS" }, "properties": [ { "id": "unit", "value": "bytes" } ] },
+          { "matcher": { "id": "byName", "options": "Procs" }, "properties": [ { "id": "unit", "value": "short" } ] },
+          { "matcher": { "id": "byName", "options": "Threads" }, "properties": [ { "id": "unit", "value": "short" } ] },
+          { "matcher": { "id": "byName", "options": "Open FDs" }, "properties": [ { "id": "unit", "value": "short" } ] }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 6 },
+      "id": 5,
+      "options": { "cellHeight": "sm", "footer": { "show": false }, "showHeader": true, "sortBy": [ { "displayName": "CPU Cores", "desc": true } ] },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{groupname=~\"$groupname\"}[$__rate_interval]))", "format": "table", "instant": true, "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (namedprocess_namegroup_memory_bytes{groupname=~\"$groupname\",memtype=\"resident\"})", "format": "table", "instant": true, "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (namedprocess_namegroup_num_procs{groupname=~\"$groupname\"})", "format": "table", "instant": true, "refId": "C" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (namedprocess_namegroup_num_threads{groupname=~\"$groupname\"})", "format": "table", "instant": true, "refId": "D" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (namedprocess_namegroup_open_filedesc{groupname=~\"$groupname\"})", "format": "table", "instant": true, "refId": "E" }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        { "id": "organize", "options": { "excludeByName": { "Time": true }, "indexByName": {}, "renameByName": { "groupname": "Process", "Value #A": "CPU Cores", "Value #B": "RSS", "Value #C": "Procs", "Value #D": "Threads", "Value #E": "Open FDs" } } }
+      ],
+      "title": "Top Processes (CPU / RAM / Procs / Threads / FDs)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "id": 102,
+      "panels": [],
+      "title": "Per-process Trends",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "CPU consumed per process group, in cores (user + system).",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true }, "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 6,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (rate(namedprocess_namegroup_cpu_seconds_total{groupname=~\"$groupname\"}[$__rate_interval]))", "legendFormat": "{{ groupname }}", "refId": "A" } ],
+      "title": "CPU Usage (cores)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Resident memory (RSS) per process group.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true }, "unit": "bytes" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 7,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (namedprocess_namegroup_memory_bytes{groupname=~\"$groupname\",memtype=\"resident\"})", "legendFormat": "{{ groupname }}", "refId": "A" } ],
+      "title": "Resident Memory (RSS)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Disk I/O per process group. Positive = read, negative = write. Bytes as seen at the process level (may differ from block-device I/O due to page cache).",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": true, "drawStyle": "line", "fillOpacity": 8, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true }, "unit": "Bps" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "id": 8,
+      "options": { "legend": { "calcs": ["mean"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (rate(namedprocess_namegroup_read_bytes_total{groupname=~\"$groupname\"}[$__rate_interval]))", "legendFormat": "read {{ groupname }}", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "-sum by (groupname) (rate(namedprocess_namegroup_write_bytes_total{groupname=~\"$groupname\"}[$__rate_interval]))", "legendFormat": "write {{ groupname }}", "refId": "B" }
+      ],
+      "title": "Disk I/O",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Thread count per process group. A monotonic climb with steady load is the classic thread-leak shape.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true }, "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "id": 9,
+      "options": { "legend": { "calcs": ["max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (namedprocess_namegroup_num_threads{groupname=~\"$groupname\"})", "legendFormat": "{{ groupname }}", "refId": "A" } ],
+      "title": "Threads",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Major page faults per second -- faults that hit disk (the costly kind). Sustained majors = memory pressure / thrashing for that process.",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true }, "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "id": 10,
+      "options": { "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (rate(namedprocess_namegroup_major_page_faults_total{groupname=~\"$groupname\"}[$__rate_interval]))", "legendFormat": "{{ groupname }}", "refId": "A" } ],
+      "title": "Major Page Faults/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Open file descriptors per process group. Watch for a steady climb -- the precursor to 'too many open files' (EMFILE).",
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "spanNulls": true }, "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "id": 11,
+      "options": { "legend": { "calcs": ["max"], "displayMode": "table", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [ { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (groupname) (namedprocess_namegroup_open_filedesc{groupname=~\"$groupname\"})", "legendFormat": "{{ groupname }}", "refId": "A" } ],
+      "title": "Open File Descriptors",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["edgeproxy", "processes", "system"],
+  "templating": { "list": [
+    {
+      "current": { "text": "All", "value": "$__all", "selected": false },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "definition": "label_values(namedprocess_namegroup_num_procs, groupname)",
+      "includeAll": true,
+      "allValue": ".+",
+      "label": "Process",
+      "multi": true,
+      "name": "groupname",
+      "query": { "query": "label_values(namedprocess_namegroup_num_procs, groupname)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+      "refresh": 2,
+      "sort": 1,
+      "type": "query"
+    }
+  ] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "EDGEPROXY -- Process Detail",
+  "uid": "edgeproxy-processes",
+  "version": 1
+}

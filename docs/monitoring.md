@@ -11,7 +11,7 @@ Activate via `.env`:
 COMPOSE_PROFILES=monitoring
 ```
 
-Then `sudo ./traefik.sh restart`. Seven services come up alongside
+Then `sudo ./traefik.sh restart`. Eight services come up alongside
 Traefik:
 
 | Service | Role | Reachable | Data |
@@ -23,6 +23,7 @@ Traefik:
 | **Alertmanager** | Alert routing | monitoring/`/alertmanager` | `${DATA_DIRECTORY}/alertmanager/` |
 | **node-exporter** | Host metrics | internal-only | (none -- reads `/proc`, `/sys`) |
 | **cAdvisor** | Container metrics | internal-only | (none -- reads cgroups) |
+| **process-exporter** | Per-process metrics | internal-only | (none -- reads host `/proc`) |
 
 All admin UIs sit behind the `monitoring` entrypoint with BasicAuth + IP
 whitelist (see [`admin-access.md`](admin-access.md)).
@@ -72,6 +73,7 @@ and stores time-series data in its embedded TSDB.
 - `traefik:8082` — Traefik's internal metrics entrypoint
 - `node-exporter:9100` — host CPU/memory/disk/network
 - `cadvisor:8080` — per-container CPU/memory/IO
+- `process-exporter:9256` — per-process CPU/memory/IO/threads/FDs
 - `loki:3100` — Loki self-metrics
 - `grafana:3000/metrics` — Grafana self-metrics
 - `alertmanager:9093` — Alertmanager self-metrics
@@ -98,12 +100,12 @@ millions of series).
 **What it does**: visualisation. Pulls from Prometheus + Loki
 datasources, renders dashboards.
 
-**Pre-provisioned dashboards** (11 dashboards / 87 panels in
+**Pre-provisioned dashboards** (13 dashboards / 113 panels in
 [`config/grafana/dashboards/`](../config/grafana/dashboards/)):
 
 | Dashboard | UID | What it shows |
 | --- | --- | --- |
-| EDGEPROXY — Home | `edgeproxy-home` | Landing page with auto-listed dashboard index + 6 live KPI stats with drill-down links. Set as Grafana's default dashboard for "open Grafana, see everything important". |
+| EDGEPROXY — Home | `edgeproxy-home` | Landing page: 6 live KPI stats with drill-down links, a categorised navigation panel linking every dashboard, and a "what lives where" guide. Provisioned as Grafana's default home page via `GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH` (replaces the stock "Welcome to Grafana" splash). |
 | EDGEPROXY — Overview | `edgeproxy-overview` | KPIs (Traefik up, req/s, 5xx ratio, p95 latency, firing alerts), per-service latency timeseries with SLO threshold lines, host CPU/mem/disk gauges, recent 5xx access logs. |
 | EDGEPROXY — HTTP Traffic | `edgeproxy-http-traffic` | Top routers/services, latency heatmap (full distribution, slow-tail visible), bandwidth, method mix, status-code stack. Filter via `$service` / `$router` variables. |
 | EDGEPROXY — Backends | `edgeproxy-backends` | Per-service open connections, retry rate, latency-quantile matrix (p50/p95/p99 in one table), recent backend errors. Filter via `$service`. |
@@ -111,6 +113,8 @@ datasources, renders dashboards.
 | EDGEPROXY — Alerts | `edgeproxy-alerts` | Currently firing alerts, alert history, rule-eval health, notification pipeline, alertmanager silences. |
 | EDGEPROXY — SLI / SLO | `edgeproxy-slo` | 28-day availability gauge, p95 latency, error-budget burn (multi-window 1h/6h/24h per Google SRE workbook), per-service SLO table. Targets configurable via dashboard variables. |
 | EDGEPROXY — Client Analysis | `edgeproxy-clients` | Top source IPs, abuse signals (401/403 by client over time), probe / scan signature log (regex over `.env`, `.git`, `wp-admin`, etc.). |
+| EDGEPROXY — Resource Monitor | `edgeproxy-resources` | "Who is loading the box?" Host CPU/RAM/load/network gauges (node-exporter) plus per-container CPU / memory / network / disk **throughput and IOPS**, ranked in top-consumer tables and normalised against host capacity (cores, MemTotal). cAdvisor measures cgroups (containers); drill into individual processes on Process Detail. |
+| EDGEPROXY — Process Detail | `edgeproxy-processes` | Per-**process** CPU / resident memory / disk I/O / threads / open file descriptors / major page-faults (process-exporter, grouped by command name). Answers "which process *inside* the container is loading the box" -- the granularity cAdvisor cannot give. |
 | EDGEPROXY — Containers | `edgeproxy-containers` | Per-container CPU/mem/network/throttle, restart count, OOM events. |
 | EDGEPROXY — Self-Monitoring | `edgeproxy-self-monitoring` | Prometheus TSDB cardinality / WAL-replay / scrape-pool, Loki ingest + active streams. The "monitoring of monitoring" view. |
 | EDGEPROXY — Logs Explorer | `edgeproxy-logs` | Loki-backed log search across the stack with `$stack` / `$container` / `$search` filters. |
@@ -323,6 +327,33 @@ under-provisioned.
 
 The pre-configured `ContainerCpuThrottled` alert fires when >25 % of
 CPU periods are throttled.
+
+## process-exporter
+
+**What it does**: per-**process** metrics — CPU, resident memory, disk
+read/write bytes, threads, open file descriptors, page faults. Where
+cAdvisor stops at the container boundary (cgroups), process-exporter
+reads host `/proc` and attributes usage to individual processes. Backs
+the Process Detail dashboard (`edgeproxy-processes`).
+
+**PID namespace**: runs with `pid: host` so it sees every process on
+the box, not just its own. Drops all capabilities except `SYS_PTRACE`
+(needed to read other users' `/proc/<pid>/cmdline` on hosts hardened
+with `hidepid=2`; harmless otherwise). No host port, no Traefik route —
+Prometheus scrapes it at `process-exporter:9256` over the
+proxy-internal network.
+
+**Grouping**: processes are bucketed by kernel command name (`{{.Comm}}`)
+via [`config/process-exporter/process-exporter.yml`](../config/process-exporter/process-exporter.yml).
+Same-named processes across containers aggregate into one series — the
+"where does my CPU/RAM go" view. Cardinality is bounded (one series-set
+per distinct command, typically 20-60 on an edge host); grouping by
+full cmdline would explode it, which is why `Comm` is the deliberate
+choice. For per-container process attribution, add explicit per-name
+rules above the catch-all (first-match-wins).
+
+**Metric prefix**: all series are `namedprocess_namegroup_*` with a
+`groupname` label.
 
 ## What "non-blocking logging" guarantees
 

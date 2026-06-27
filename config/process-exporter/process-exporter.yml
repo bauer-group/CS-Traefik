@@ -1,0 +1,36 @@
+# =============================================================================
+# process-exporter - process grouping configuration
+# =============================================================================
+# Reference: https://github.com/ncabatoff/process-exporter
+#
+# WHY this exporter exists alongside cAdvisor:
+#   cAdvisor measures cgroups -- it tells you a whole CONTAINER used 0.4
+#   cores, but not WHICH process inside it did. process-exporter reads
+#   host /proc and attributes CPU / RSS / disk-IO / threads / open-FDs to
+#   individual processes, grouped by the rule(s) below. This is what backs
+#   the "EDGEPROXY -- Process Detail" dashboard.
+#
+# Grouping rule:
+#   `name: "{{.Comm}}"` buckets every process by its kernel command name
+#   (the COMM field, e.g. `traefik`, `prometheus`, `grafana`, `nginx`,
+#   `dockerd`, `sshd`). The `cmdline: ['.+']` matcher means "match every
+#   process" -- so nothing on the host is missed. Same-named processes
+#   across different containers are aggregated into one group, which is
+#   exactly what you want for a "where does my CPU/RAM go" system view.
+#
+# Trade-off: grouping by Comm merges (say) all `node` processes from
+# different app containers into one `node` series. If you ever need
+# per-container process attribution, switch to a templated name that
+# includes a cgroup-derived label, or add explicit per-name rules above
+# the catch-all (process-exporter uses first-match-wins ordering).
+#
+# Cardinality: one series-set per distinct command name on the host.
+# On an edge-proxy box this is typically 20-60 groups -- negligible.
+# A catch-all by full cmdline ({{.Cmd}}) would explode cardinality;
+# Comm is the deliberate, bounded choice.
+# =============================================================================
+
+process_names:
+  - name: "{{.Comm}}"
+    cmdline:
+      - '.+'
