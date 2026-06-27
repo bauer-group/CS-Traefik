@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/bauer-group/CS-Traefik/compare/v1.2.0...v1.3.0) (2026-06-27)
+
+### 🚀 Features
+
+* **upgrade:** rebuilt shared network via stop/restart and migrated wildcard cert ([387a20b](https://github.com/bauer-group/CS-Traefik/commit/387a20bba520ff1c83f4f5ebd545e3fd32ced27f))
+
 ## [1.2.0](https://github.com/bauer-group/CS-Traefik/compare/v1.1.2...v1.2.0) (2026-06-26)
 
 ### 🚀 Features
