@@ -100,7 +100,7 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}"
-      - "--storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-8GB}"
+      - "--storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-32GB}"
       - "--web.console.libraries=/usr/share/prometheus/console_libraries"
       - "--web.console.templates=/usr/share/prometheus/consoles"
       - "--web.enable-lifecycle"
@@ -271,6 +271,17 @@ services:
 
       GF_LOG_MODE: "console"
       GF_LOG_LEVEL: "info"
+
+      # Go runtime soft-memory cap. Grafana is a Go binary and its GC
+      # sizes the heap against perceived available memory -- it does NOT
+      # read the cgroup limit on its own. Without GOMEMLIMIT it grows the
+      # heap toward the hard `limits.memory` ceiling and only then gets
+      # OOM-killed (the classic "pinned at ~100% of the cap" symptom).
+      # Setting GOMEMLIMIT to ~90% of the hard cap makes the GC run
+      # earlier as it nears the limit -- trading a little CPU for staying
+      # under the ceiling. Keep GRAFANA_GOMEMLIMIT at ~90% of
+      # GRAFANA_MEMORY_LIMIT and raise BOTH together when you bump the cap.
+      GOMEMLIMIT: "${GRAFANA_GOMEMLIMIT:-920MiB}"
     labels:
       com.centurylinklabs.watchtower.enable: "true"
       traefik.enable: "true"
@@ -328,12 +339,13 @@ services:
       start_period: 60s
     # Resource cap. Grafana is mostly query-proxy + render -- caps
     # prevent a runaway dashboard plugin / leaked auth session from
-    # eating the host. Defaults are headroom-y for typical use.
+    # eating the host. The hard cap is paired with GOMEMLIMIT above
+    # (~90%) so the Go GC collects before this ceiling is reached.
     deploy:
       resources:
         limits:
           cpus: "${GRAFANA_CPU_LIMIT:-1}"
-          memory: ${GRAFANA_MEMORY_LIMIT:-384m}
+          memory: ${GRAFANA_MEMORY_LIMIT:-1g}
     logging: *default-logging
 
   # ---------------------------------------------------------------------------
@@ -604,7 +616,11 @@ services:
     devices:
       - /dev/kmsg:/dev/kmsg
     command:
-      - "--housekeeping_interval=15s"
+      # 5s to match the 5s Prometheus scrape -- otherwise cAdvisor only
+      # refreshes its metrics every 15s and the container panels would
+      # show the same value 3x per scrape (15s-stale despite 5s polling).
+      # Costs cAdvisor a little more CPU (more frequent cgroup walks).
+      - "--housekeeping_interval=5s"
       - "--docker_only=true"
       - "--store_container_labels=false"
       - "--whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service"

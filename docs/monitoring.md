@@ -82,7 +82,7 @@ and stores time-series data in its embedded TSDB.
 
 ```env
 PROMETHEUS_RETENTION_TIME=30d   # 30 days
-PROMETHEUS_RETENTION_SIZE=8GB   # whichever hits first wins
+PROMETHEUS_RETENTION_SIZE=32GB  # first cap hit wins; needs ~35GB free disk
 ```
 
 **Web UI**: `http://127.0.0.1:9090/prometheus/` (or

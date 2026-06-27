@@ -5,9 +5,20 @@
 # =============================================================================
 
 global:
-  scrape_interval:     15s   # default for all jobs unless overridden
+  # 5s scrape -- live dashboards (all Grafana dashboards refresh at 5s).
+  # scrape_timeout MUST stay < scrape_interval or Prometheus rejects the
+  # config, hence 4s. evaluation_interval stays 15s: alert/recording-rule
+  # evaluation does not need to triple just because scraping did -- 15s
+  # alert latency is fine and keeps rule-eval CPU flat.
+  # COST: 5s vs 15s = ~3x samples -> ~3x TSDB write rate. The default
+  # PROMETHEUS_RETENTION_SIZE=32GB is sized so the 30d TIME cap binds first
+  # even at 5s scrape (32GB comfortably holds ~30d of 5s samples for this
+  # target set). On a smaller data volume, lower PROMETHEUS_RETENTION_SIZE
+  # in .env -- the size cap then becomes the binding limit and effective
+  # retention shrinks proportionally (~10d at the old 8GB default).
+  scrape_interval:     5s    # default for all jobs unless overridden
   evaluation_interval: 15s
-  scrape_timeout:      10s
+  scrape_timeout:      4s    # must be < scrape_interval
   external_labels:
     stack: edgeproxy
     monitor: cs-traefik

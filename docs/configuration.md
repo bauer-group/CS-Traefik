@@ -133,7 +133,7 @@ passes them through automatically).
 | `GRAFANA_ADMIN_PASSWORD` | *(required)* | No insecure default — compose fails closed if unset while monitoring is active. The `install.sh` wizard generates a strong random value. |
 | `GRAFANA_PLUGINS` | *(empty)* | Comma-separated list of Grafana plugins installed on first start. |
 | `PROMETHEUS_RETENTION_TIME` | `30d` | Whichever (time or size) hits first wins. |
-| `PROMETHEUS_RETENTION_SIZE` | `8GB` | |
+| `PROMETHEUS_RETENTION_SIZE` | `32GB` | |
 | `PROMETHEUS_SCRAPE_INTERVAL` | `15s` | 5s for fine-grained latency graphs; 30s for low-overhead. |
 | `LOKI_RETENTION_PERIOD` | `168h` | 7 days. Increase for compliance / long-tail debugging. |
 
@@ -161,7 +161,8 @@ cannot cascade.
 | `PROMETHEUS_CPU_LIMIT` | `1` | Prometheus |
 | `PROMETHEUS_MEMORY_LIMIT` | `1g` | |
 | `GRAFANA_CPU_LIMIT` | `1` | Grafana |
-| `GRAFANA_MEMORY_LIMIT` | `384m` | |
+| `GRAFANA_MEMORY_LIMIT` | `1g` | |
+| `GRAFANA_GOMEMLIMIT` | `920MiB` | |
 | `LOKI_CPU_LIMIT` | `1` | Loki |
 | `LOKI_MEMORY_LIMIT` | `768m` | |
 | `PROMTAIL_CPU_LIMIT` | `0.5` | Promtail |

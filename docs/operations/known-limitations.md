@@ -151,7 +151,7 @@ systemd:
 | --- | --- | --- | --- |
 | traefik | -50 | (uncapped on purpose) | (uncapped on purpose) |
 | prometheus | +200 | `${PROMETHEUS_MEMORY_LIMIT:-1g}` | `${PROMETHEUS_CPU_LIMIT:-1}` |
-| grafana | +200 | `${GRAFANA_MEMORY_LIMIT:-384m}` | `${GRAFANA_CPU_LIMIT:-1}` |
+| grafana | +200 | `${GRAFANA_MEMORY_LIMIT:-1g}` | `${GRAFANA_CPU_LIMIT:-1}` |
 | loki | +200 | `${LOKI_MEMORY_LIMIT:-768m}` | `${LOKI_CPU_LIMIT:-1}` |
 | promtail | +200 | `${PROMTAIL_MEMORY_LIMIT:-256m}` | `${PROMTAIL_CPU_LIMIT:-0.5}` |
 | alertmanager | +200 | `${ALERTMANAGER_MEMORY_LIMIT:-128m}` | `${ALERTMANAGER_CPU_LIMIT:-0.25}` |
