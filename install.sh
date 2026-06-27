@@ -1262,8 +1262,10 @@ $(if [[ -n "$V2_DETECTED_PROJECTS" ]]; then echo "$V2_DETECTED_PROJECTS" | sed '
 Old networks to remove (volumes are preserved):
       EDGEPROXY, EDGEPROXY_INTERNAL, plus any matching by name
       Application containers attached to these networks (e.g. s3, seafile,
-      ftp) are detached first so the network can be rebuilt, then reconnected
-      automatically once v3 has recreated it (same name + subnet).
+      ftp) are STOPPED + disconnected first so the network can be rebuilt,
+      then reconnected + restarted once v3 has recreated it (same name +
+      subnet). They are externally unreachable while Traefik is down anyway,
+      so this adds no extra outage.
 
 Settings migrated from old .env (v2 KEY -> v3 KEY):
       API_USERS              -> MONITORING_USERS      (bcrypt hash preserved)
@@ -1288,6 +1290,12 @@ ACME certificates:
       Source : <backup>/configuration/traefik/certificates/dynamic/letsencrypt.json
       Target : <install>/data/traefik/letsencrypt/letsencrypt-tls.json
                               (matches v2's TLS-ALPN-01 challenge type)
+
+Static wildcard certificate (if present):
+      A corporate *.bauer-group.com cert found in the backup is copied to
+      <install>/config/certs/static/bauer-group.{pem,key} and its dynamic
+      config (tls-wildcard-bauer-group.yml) is activated. Skipped if no
+      matching cert exists.
 
 Volumes:
       Existing Docker named volumes are NOT touched.
@@ -1328,7 +1336,7 @@ stop_v2_stack() {
 }
 
 remove_v2_networks() {
-    print_section "Phase 3b: Detach apps + remove legacy networks (volumes preserved)"
+    print_section "Phase 3b: Stop apps + remove legacy networks (volumes preserved)"
     local nets=( "${V2_OLD_ENV[NETWORK_NAME]:-EDGEPROXY}" "${V2_OLD_ENV[NETWORK_NAME]:-EDGEPROXY}_INTERNAL" "EDGEPROXY" "EDGEPROXY_INTERNAL" "edgeproxy" "edgeproxy_internal" )
     local seen=" "
     for net in "${nets[@]}"; do
@@ -1337,22 +1345,34 @@ remove_v2_networks() {
         docker network inspect "$net" >/dev/null 2>&1 || continue
 
         # Any container still attached here after Phase 3 is a foreign app
-        # stack (declared this network `external: true`). Its live endpoint
-        # blocks 'docker network rm' with "has active endpoints". Detach each
-        # so the network can be torn down and rebuilt by v3 with an identical
-        # name + subnet; Phase 8b reconnects them once the new network exists.
-        # Force-disconnect (no stop) keeps the app processes running -- they are
-        # unreachable anyway while Traefik itself is down, so there is nothing
-        # to gain from stopping them, and reconnecting a live container avoids
-        # any stale network-ID-on-start reconnection failure.
+        # stack (s3, seafile, ftp, ...) that declared this network
+        # `external: true`. Its endpoint blocks 'docker network rm' with
+        # "has active endpoints", so the legacy network can't be torn down
+        # and rebuilt by v3 (which needs the same name + subnet).
+        #
+        # For each such container we: record whether it was running, STOP it
+        # (clean app shutdown -- it is externally unreachable anyway while
+        # Traefik is down, so this adds no extra outage), then DISCONNECT it.
+        # The explicit disconnect clears the container's stored endpoint so the
+        # later 'docker start' against the freshly-recreated network (which has
+        # a NEW network ID under the SAME name) cannot fail with a stale
+        # "network <id> not found". Phase 8b reconnects + restarts them.
         local attached
         attached=$(docker network inspect -f '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' "$net" 2>/dev/null || true)
         if [[ -n "$attached" ]]; then
             while IFS= read -r c; do
                 [[ -z "$c" ]] && continue
-                print_info "detaching '$c' from '$net' (reattached after v3 start)"
+                local running
+                running=$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null || echo "false")
+                if [[ "$running" == "true" ]]; then
+                    print_info "stopping '$c' (on '$net') for network rebuild"
+                    upgrade_try_or_dry docker stop "$c"
+                else
+                    print_info "'$c' (on '$net') already stopped"
+                fi
                 upgrade_try_or_dry docker network disconnect -f "$net" "$c"
-                V2_REATTACH+=( "$c|$net" )
+                # Record "<container>|<network>|<was-running>" for Phase 8b.
+                V2_REATTACH+=( "$c|$net|$running" )
             done <<< "$attached"
         fi
 
@@ -1360,37 +1380,44 @@ remove_v2_networks() {
         upgrade_try_or_dry docker network rm "$net"
     done
     if [[ ${#V2_REATTACH[@]} -gt 0 ]]; then
-        print_warning "Detached ${#V2_REATTACH[@]} application endpoint(s); these reattach in Phase 8b."
+        print_warning "Stopped + detached ${#V2_REATTACH[@]} application endpoint(s); reconnected + restarted in Phase 8b."
     fi
     print_success "Legacy networks removed (where present)."
 }
 
-# Phase 8b -- Reattach the application containers detached in Phase 3b to the
-# rebuilt network. v3 recreates the public network with the SAME name (and
-# byte-identical subnet), so reconnecting by name restores reachability and
-# Traefik rediscovers each backend via the docker 'connect' event. The app
-# processes never stopped, so no restart is required.
+# Phase 8b -- Reconnect + restart the application containers stopped in Phase
+# 3b. v3 recreates the public network with the SAME name (byte-identical
+# subnet), so reconnecting by name restores reachability and Traefik
+# rediscovers each backend via the docker 'connect'/'start' event. We connect
+# the (stopped) container first so the endpoint is in place, then start the
+# ones that were running before the upgrade.
 reattach_app_containers() {
     [[ ${#V2_REATTACH[@]} -eq 0 ]] && return 0
-    print_section "Phase 8b: Reattach application containers to rebuilt network"
-    local entry c net
+    print_section "Phase 8b: Reconnect + restart application containers"
+    local entry c net was_running
     for entry in "${V2_REATTACH[@]}"; do
-        c="${entry%%|*}"; net="${entry##*|}"
+        c="${entry%%|*}"
+        net="${entry#*|}"; net="${net%|*}"      # middle field
+        was_running="${entry##*|}"
         if ! docker network inspect "$net" >/dev/null 2>&1; then
-            print_warning "network '$net' is missing -- reconnect '$c' manually once it exists."
+            print_warning "network '$net' is missing -- reconnect + start '$c' manually once it exists."
             continue
         fi
-        # A restart:always app may already have reconnected on its own. Use an
-        # exact map-key lookup (not a word-grep, which would conflate EDGEPROXY
-        # with EDGEPROXY-INTERNAL since '-' is a word boundary).
-        if [[ "$(docker inspect -f "{{if index .NetworkSettings.Networks \"$net\"}}yes{{end}}" "$c" 2>/dev/null)" == "yes" ]]; then
-            print_info "'$c' already attached to '$net' -- skipping."
-            continue
+        # Reconnect unless it is somehow already attached (exact map-key lookup,
+        # not a word-grep that would conflate EDGEPROXY with EDGEPROXY-INTERNAL
+        # since '-' is a word boundary).
+        if [[ "$(docker inspect -f "{{if index .NetworkSettings.Networks \"$net\"}}yes{{end}}" "$c" 2>/dev/null)" != "yes" ]]; then
+            print_info "reconnecting '$c' -> '$net'"
+            upgrade_try_or_dry docker network connect "$net" "$c"
         fi
-        print_info "reconnecting '$c' -> '$net'"
-        upgrade_try_or_dry docker network connect "$net" "$c"
+        if [[ "$was_running" == "true" ]]; then
+            print_info "starting '$c'"
+            upgrade_try_or_dry docker start "$c"
+        else
+            print_info "'$c' was stopped before the upgrade -- left stopped (reconnected only)"
+        fi
     done
-    print_success "Application containers reattached to '${V2_REATTACH[0]##*|}'."
+    print_success "Application containers reconnected + restarted."
 }
 
 # Phase 4 -- Backup ----------------------------------------------------------
@@ -1523,6 +1550,123 @@ migrate_acme_from_backup() {
     fi
 }
 
+# Phase 7b -- Migrate static (corporate) wildcard certificate ----------------
+# A v2 stack may have served a corporate-issued *.bauer-group.com wildcard via
+# a Traefik dynamic `tls.certificates` entry (not ACME). v3 ships that exact
+# mechanism pre-wired but INACTIVE:
+#     config/certs/static/bauer-group.{pem,key}            <- cert + key
+#     config/traefik/dynamic/tls-wildcard-bauer-group.yml(.disabled)
+# This phase finds such a cert in the backup -- matched by certificate content
+# (SAN/CN), so it is independent of where v2 stored it -- copies the pair into
+# place, and activates the config by dropping the `.disabled` suffix. The file
+# provider (watch:true) loads it on start. No-op when no matching cert exists
+# ("wenn vorhanden").
+migrate_static_certs_from_backup() {
+    local backup_dir="$1"
+    print_section "Phase 7b: Migrate static wildcard certificate (if present)"
+
+    local match_domain="bauer-group.com"
+    local static_dir="$INSTALL_DIR/config/certs/static"
+    local cfg_disabled="$INSTALL_DIR/config/traefik/dynamic/tls-wildcard-bauer-group.yml.disabled"
+    local cfg_active="$INSTALL_DIR/config/traefik/dynamic/tls-wildcard-bauer-group.yml"
+
+    if ! command -v openssl >/dev/null 2>&1; then
+        print_warning "openssl unavailable -- cannot detect static certs. Skipping."
+        return 0
+    fi
+    if [[ ! -d "$backup_dir" ]]; then
+        print_info "No backup dir to scan -- skipping static cert migration."
+        return 0
+    fi
+
+    # Scope the scan to the v2 config tree (where certs live) -- the backup
+    # also holds data/ (Prometheus TSDB, Loki chunks) that we must not crawl.
+    local scan_root="$backup_dir/configuration"
+    [[ -d "$scan_root" ]] || scan_root="$backup_dir"
+
+    # --- Find a leaf cert whose SAN/CN covers *.bauer-group.com ------------
+    local domain_re="${match_domain//./\\.}"
+    local cert_file="" key_file="" f txt
+    while IFS= read -r f; do
+        txt=$(openssl x509 -in "$f" -noout -text 2>/dev/null) || continue   # must be a real X.509 cert
+        if grep -qiE "(DNS:[*.]*|CN[[:space:]]*=[[:space:]]*[*.]*)${domain_re}" <<<"$txt"; then
+            cert_file="$f"; break
+        fi
+    done < <(find "$scan_root" -type f \( -iname '*.pem' -o -iname '*.crt' -o -iname '*.cer' \) 2>/dev/null)
+
+    if [[ -z "$cert_file" ]]; then
+        print_info "No static *.${match_domain} certificate found in backup -- skipping (ACME handles TLS)."
+        return 0
+    fi
+    print_info "Found wildcard cert: $cert_file"
+
+    # --- Find the matching private key (public-key match: works RSA + EC) --
+    # -passin pass: makes an encrypted key fail fast instead of prompting and
+    # hanging the unattended upgrade (v2/Traefik keys are unencrypted anyway).
+    local cert_pubkey k kpub
+    cert_pubkey=$(openssl x509 -in "$cert_file" -noout -pubkey 2>/dev/null)
+    if [[ -n "$cert_pubkey" ]]; then
+        # The cert file itself may be a combined cert+key bundle.
+        kpub=$(openssl pkey -in "$cert_file" -passin pass: -pubout 2>/dev/null || true)
+        if [[ -n "$kpub" && "$kpub" == "$cert_pubkey" ]]; then
+            key_file="$cert_file"
+        else
+            while IFS= read -r k; do
+                kpub=$(openssl pkey -in "$k" -passin pass: -pubout 2>/dev/null || true)
+                if [[ -n "$kpub" && "$kpub" == "$cert_pubkey" ]]; then
+                    key_file="$k"; break
+                fi
+            done < <(find "$scan_root" -type f \( -iname '*.key' -o -iname '*.pem' \) 2>/dev/null)
+        fi
+    fi
+
+    if [[ -z "$key_file" ]]; then
+        print_warning "Found the wildcard cert but no matching private key in backup."
+        print_warning "  Cert: $cert_file"
+        print_warning "Place the key at $static_dir/bauer-group.key and rename"
+        print_warning "  ${cfg_disabled##*/} -> ${cfg_active##*/} to activate. Skipping for now."
+        return 0
+    fi
+    print_info "Matched private key:  $key_file"
+
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "    [dry-run] copy cert chain '$cert_file' -> '$static_dir/bauer-group.pem' (0644)"
+        echo "    [dry-run] copy key        '$key_file'  -> '$static_dir/bauer-group.key' (0600)"
+        echo "    [dry-run] activate config: ${cfg_disabled##*/} -> ${cfg_active##*/}"
+        return 0
+    fi
+
+    mkdir -p "$static_dir"
+    if [[ "$key_file" == "$cert_file" ]]; then
+        # Combined bundle: copy ONLY the CERTIFICATE block(s) to .pem (preserves
+        # the full chain, never leaks the key into a 0644 file), key to .key.
+        awk '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/' "$cert_file" > "$static_dir/bauer-group.pem"
+        openssl pkey -in "$cert_file" -passin pass: -out "$static_dir/bauer-group.key" 2>/dev/null
+    else
+        cp "$cert_file" "$static_dir/bauer-group.pem"   # full chain preserved verbatim
+        cp "$key_file"  "$static_dir/bauer-group.key"
+    fi
+    chmod 644 "$static_dir/bauer-group.pem"
+    chmod 600 "$static_dir/bauer-group.key"
+    print_success "Installed wildcard cert + key into config/certs/static/"
+
+    # --- Activate the dynamic config --------------------------------------
+    if [[ -f "$cfg_active" ]]; then
+        print_info "Wildcard config already active -- left as-is."
+    elif [[ -f "$cfg_disabled" ]]; then
+        mv "$cfg_disabled" "$cfg_active"
+        print_success "Activated wildcard config: ${cfg_active##*/}"
+    else
+        print_warning "Wildcard config template missing at $cfg_disabled."
+        print_warning "Cert is installed but unreferenced -- add a dynamic tls.certificates"
+        print_warning "entry for /etc/traefik/certs/static/bauer-group.{pem,key}."
+    fi
+
+    local enddate
+    enddate=$(openssl x509 -in "$static_dir/bauer-group.pem" -noout -enddate 2>/dev/null | cut -d= -f2- || true)
+    [[ -n "$enddate" ]] && print_info "Wildcard cert notAfter: $enddate (corporate CA -- renew manually)"
+}
+
 # Phase 8/9 -- Start + verify ------------------------------------------------
 verify_upgrade() {
     print_section "Phase 9: Verify Traefik healthy"
@@ -1618,6 +1762,7 @@ upgrade_from_v2() {
 
     generate_env_with_migration "$V2_BACKUP_DIR"
     migrate_acme_from_backup "$V2_BACKUP_DIR"
+    migrate_static_certs_from_backup "$V2_BACKUP_DIR"
 
     if [[ "$DRY_RUN" == true ]]; then
         print_section "Dry-run complete"
