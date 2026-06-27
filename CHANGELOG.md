@@ -1,3 +1,9 @@
+## [1.6.0](https://github.com/bauer-group/CS-Traefik/compare/v1.5.0...v1.6.0) (2026-06-27)
+
+### 🚀 Features
+
+* **monitoring:** added host memory breakdown panel (used/cache/free) ([8b60540](https://github.com/bauer-group/CS-Traefik/commit/8b6054092f477a82fbf9950e4b90ea0aa6e6e7e5))
+
 ## [1.5.0](https://github.com/bauer-group/CS-Traefik/compare/v1.4.0...v1.5.0) (2026-06-27)
 
 ### 🚀 Features
