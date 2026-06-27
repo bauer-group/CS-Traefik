@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/bauer-group/CS-Traefik/compare/v1.3.0...v1.4.0) (2026-06-27)
+
+### 🚀 Features
+
+* **monitoring:** fixed Grafana auth loop and added resource/process dashboards ([c58b6cf](https://github.com/bauer-group/CS-Traefik/commit/c58b6cf04f6dc8093e8283c05d39baebecdffec1))
+
 ## [1.3.0](https://github.com/bauer-group/CS-Traefik/compare/v1.2.0...v1.3.0) (2026-06-27)
 
 ### 🚀 Features
