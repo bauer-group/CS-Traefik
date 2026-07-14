@@ -115,7 +115,7 @@ DATABASE_PASSWORD=...generate...
 | `rate-limit@file` | 5000 req/s avg / 10000 burst per IP (CGNAT-tolerant baseline). |
 | `body-limit-10mb@file` | Reject requests > 10 MB. Useful guard against accidentally-huge JSON imports. |
 | `retry@file` | Retry idempotent requests (GET / HEAD / OPTIONS / PUT / DELETE) up to 3 times on transient backend failures. |
-| `hardened-api@file` | HSTS (mild) + nosniff + server-scrub + rate-limit (overrides the previous one) + body-limit (overrides). Convenience chain. |
+| `hardened-api@file` | HSTS (mild) + nosniff + rate-limit (overrides the previous one) + body-limit (overrides). Convenience chain. |
 
 Note `hardened-api@file` already includes `rate-limit + body-limit-10mb`,
 so applying both `rate-limit@file,body-limit-10mb@file` AND

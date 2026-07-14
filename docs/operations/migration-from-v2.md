@@ -77,9 +77,14 @@ target is referenced internally in `prometheus.yml`.
 ### Default `bg-provider` is always-on
 
 Legacy stack added `X-Solution-Provider: BAUER GROUP` only on the
-monitoring/dashboard router. CS-Traefik wires it at the **entrypoint level**
-so EVERY public response gets the header. App stacks don't need to
-do anything.
+monitoring/dashboard router. CS-Traefik wires `bg-provider` at the
+**entrypoint level** so EVERY public response is branded — it sets
+fixed values `Server: BAUER GROUP Edge` and `X-Powered-By: BAUER GROUP`.
+Because the values are constant, they also mask the real backend
+(overwriting the upstream's nginx/PHP/Express + version so scanners
+can't fingerprint it). The `X-Solution-Provider: BAUER GROUP` header
+still exists in the middleware but ships commented-out (opt-in). App
+stacks don't need to do anything.
 
 ### IPv4 + IPv6 dual-stack by default
 

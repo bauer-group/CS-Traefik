@@ -43,9 +43,14 @@ For deep documentation see [`docs/`](docs/).
   redirects, body-size caps. Plus pre-composed chains
   (`hardened-public`, `hardened-api`, `s3-streaming`, `hardened-login`).
   See [`docs/middlewares.md`](docs/middlewares.md).
-- **`X-Solution-Provider: BAUER GROUP`** header is **always-on**
-  (entrypoint-level middleware, not opt-out-able). Compliance / branding
-  default for the whole estate.
+- **Fixed BAUER GROUP brand headers** are **always-on** (entrypoint-level
+  `bg-provider` middleware, not opt-out-able): every response carries
+  `Server: BAUER GROUP Edge` and `X-Powered-By: BAUER GROUP`. The constant
+  values do double duty — advertise the BG-managed edge AND mask the real
+  backend (they overwrite the upstream's `nginx/1.25` / `PHP/8.3` /
+  `Express` + version, so scanners can't fingerprint it). Compliance /
+  branding default for the whole estate. `X-Solution-Provider: BAUER GROUP`
+  ships commented-out — uncomment to emit it too.
 - **Full DNS-01 wildcard support** with 24+ pre-wired providers
   (Cloudflare, AWS Route 53, Azure, Hetzner, IONOS, Netcup, INWX, ...).
   See [`docs/tls-and-certificates.md`](docs/tls-and-certificates.md).

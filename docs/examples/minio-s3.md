@@ -73,7 +73,6 @@ services:
 
       # Use the s3-streaming chain:
       #   - rate-limit-permissive  (multipart with high concurrency)
-      #   - server-scrub           (strip upstream Server header)
       # Notably ABSENT: any buffering / body-limit / compression
       # middleware. S3 needs streaming, not buffering.
       - "traefik.http.routers.${STACK_NAME}-s3.middlewares=s3-streaming@file"

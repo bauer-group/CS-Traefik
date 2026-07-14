@@ -34,29 +34,31 @@ http:
     # =========================================================================
 
     # -------------------------------------------------------------------------
-    # bg-provider -- BAUER GROUP identification (response only)
+    # bg-provider -- BAUER GROUP branding + backend masking (response only)
     # -------------------------------------------------------------------------
     # Wired into entryPoints.web.http.middlewares + entryPoints.web-secure.
-    # http.middlewares in traefik.yml. Runs before any router-level
-    # middleware on the public entrypoints. Apps cannot opt out.
+    # http.middlewares in traefik.yml. Runs before any router-level middleware
+    # on the public entrypoints. Apps cannot opt out.
     #
-    # Reach: every response from a MATCHED router. Traefik's built-in
-    # 404 (no matching router for the host/path) is emitted BEFORE the
-    # entrypoint chain runs and therefore does NOT carry the header.
-    # Once an app stack is bound to a hostname, every response from that
-    # router -- including upstream 4xx/5xx -- carries the header.
+    # Sets FIXED BAUER GROUP values for Server + X-Powered-By. A constant value
+    # does two jobs at once: it ADVERTISES the BG-managed edge AND MASKS the
+    # real backend -- the fixed string overwrites the upstream's `nginx/1.25`,
+    # `PHP/8.3`, `Express`, ... so scanners see something meaningful instead of
+    # a version to fingerprint. (This supersedes the old `server-scrub`, which
+    # only emptied the headers.) X-Solution-Provider ships commented-out --
+    # uncomment to emit it too.
     #
-    # Response-header only -- the request flow is client -> proxy ->
-    # backend, so adding X-Solution-Provider on the REQUEST side would
-    # tell the BACKEND about the proxy (pointless; the backend is
-    # already in our control). The point is to mark traffic LEAVING
-    # the proxy back to the client as "this came through a BG-managed
-    # edge" -- pure response-side concern. Compliance / branding
-    # requirement, not a security boundary.
+    # Reach: every response from a MATCHED router. Traefik's built-in 404 (no
+    # matching router) is emitted BEFORE the entrypoint chain and carries none.
+    # Once an app is bound to a hostname, every response -- including upstream
+    # 4xx/5xx -- carries these headers. Response-side only (branding, not a
+    # security boundary).
     bg-provider:
       headers:
         customResponseHeaders:
-          X-Solution-Provider: "BAUER GROUP"
+          Server: "BAUER GROUP Edge"
+          X-Powered-By: "BAUER GROUP"
+          # X-Solution-Provider: "BAUER GROUP"
 
 
     # =========================================================================
@@ -132,10 +134,14 @@ http:
 
 
     # -------------------------------------------------------------------------
-    # Server-header scrubbing
+    # Server-header scrubbing (opt-out override -- no longer in the chains)
     # -------------------------------------------------------------------------
-    # Strips the upstream `Server` and `X-Powered-By` response headers --
-    # mild obscurity hardening.
+    # bg-provider already sets fixed BAUER GROUP values for Server / X-Powered-By
+    # on every response (advertise + mask). Use server-scrub ONLY on a router
+    # that must emit EMPTY Server / X-Powered-By instead of the brand: it runs
+    # after the always-on bg-provider and clears them. Kept as an opt-in for app
+    # stacks that reference `server-scrub@file`; removed from the hardened-*
+    # chains so those keep the global branding.
     server-scrub:
       headers:
         customResponseHeaders:
@@ -531,7 +537,6 @@ http:
           - frame-deny
           - nosniff
           - referrer-strict
-          - server-scrub
           - rate-limit
 
     # API backend -- no HSTS preload, no frame headers, sensible body cap.
@@ -540,7 +545,6 @@ http:
         middlewares:
           - hsts-mild
           - nosniff
-          - server-scrub
           - rate-limit
           - body-limit-10mb
 
@@ -550,7 +554,6 @@ http:
       chain:
         middlewares:
           - rate-limit-permissive
-          - server-scrub
 
     # Login / authentication endpoint -- strict rate-limit (brute-force
     # bounded), security headers, no compression (BREACH attack class).
@@ -561,5 +564,4 @@ http:
           - frame-deny
           - nosniff
           - referrer-noreferrer
-          - server-scrub
           - rate-limit-strict

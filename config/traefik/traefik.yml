@@ -150,9 +150,10 @@ entryPoints:
     http:
       # ALWAYS-ON middlewares (entrypoint-level, run before any router-
       # level middleware, can NOT be opted-out by an app):
-      #   * bg-provider -- adds the X-Solution-Provider: BAUER GROUP
-      #     identification header. Response-side only -- request-side
-      #     is pointless because the backend is already in our control.
+      #   * bg-provider -- sets fixed BAUER GROUP Server + X-Powered-By
+      #     response headers (advertise the BG edge AND mask the real
+      #     backend software/version). Response-side only. X-Solution-
+      #     Provider ships commented-out in dynamic/middlewares.yml.
       #
       # Reach: every response from a MATCHED router on this entrypoint.
       # Traefik's built-in 404 (no matching router for the host/path)

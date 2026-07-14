@@ -26,7 +26,7 @@ all have semantics that depend on the specific application:
 
 This stack ships **atomic, opt-in middlewares**. Apps choose what
 they need; the proxy applies nothing globally to app traffic except
-the BAUER GROUP `bg-provider` identification header (entrypoint-level,
+the BAUER GROUP `bg-provider` branding headers (entrypoint-level,
 non-negotiable).
 
 ## Always-on (entrypoint-level)
@@ -38,27 +38,35 @@ Wired into `entryPoints.web.http.middlewares` and
 before any router-level middleware on the public entrypoints. Apps
 cannot opt out.
 
-**What it does**: adds `X-Solution-Provider: BAUER GROUP` to the
-response. Response-side only — adding it on the request side would
-just tell the backend about the proxy (pointless; the backend is
-already in our control). The point is to mark traffic *leaving* the
-proxy back to the client. Compliance / branding requirement, not a
-security boundary.
+**What it does**: sets fixed BAUER GROUP values for `Server`
+(`BAUER GROUP Edge`) and `X-Powered-By` (`BAUER GROUP`) on the
+response. A constant value does two jobs at once — it *advertises*
+the BAUER GROUP-managed edge AND *masks* the real backend: the fixed
+string overwrites the upstream's `nginx/1.25`, `PHP/8.3`, `Express`,
+... so scanners see something meaningful instead of a version to
+fingerprint. Response-side only — setting these on the request side
+would just tell the backend about the proxy (pointless; the backend
+is already in our control). The point is to brand + mask traffic
+*leaving* the proxy back to the client. Branding, not a security
+boundary. `X-Solution-Provider: BAUER GROUP` ships commented-out
+(off by default) — uncomment it to emit that header too.
 
 **Reach**: every response from a *matched* router. Traefik's
 built-in 404 (no matching router for the requested host/path) is
 emitted *before* the entrypoint chain runs and therefore does NOT
-carry the header. Once an app stack is bound to a hostname, every
+carry these headers. Once an app stack is bound to a hostname, every
 response from that router — including upstream 4xx/5xx errors from
-the backend — carries the header. Empirically verified: matched +
-upstream 200 → header present; matched + upstream 404 → header
-present; unmatched host (Traefik built-in 404) → header absent.
+the backend — carries them. Empirically verified: matched +
+upstream 200 → headers present; matched + upstream 404 → headers
+present; unmatched host (Traefik built-in 404) → headers absent.
 
 ```yaml
 bg-provider:
   headers:
     customResponseHeaders:
-      X-Solution-Provider: "BAUER GROUP"
+      Server: "BAUER GROUP Edge"
+      X-Powered-By: "BAUER GROUP"
+      # X-Solution-Provider: "BAUER GROUP"
 ```
 
 ## Security headers
@@ -73,7 +81,7 @@ bg-provider:
 | `referrer-strict` | `Referrer-Policy: strict-origin-when-cross-origin` | Most apps. |
 | `referrer-noreferrer` | `Referrer-Policy: no-referrer` | Tighter -- no Referer header sent at all. |
 | `permissions-deny` | `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()` | Apps that don't need any of these powerful APIs. |
-| `server-scrub` | Strips `Server` and `X-Powered-By` response headers | Mild obscurity hardening. Combine with `bg-provider` to replace upstream identification. |
+| `server-scrub` | Empties the `Server` and `X-Powered-By` response headers | Opt-in only (no longer part of any chain). `bg-provider` already brands + masks these globally; reach for `server-scrub` only when a route must emit *empty* headers instead of the brand. |
 
 ## CORS
 
@@ -272,7 +280,7 @@ JSON responses do benefit from the 256-1024 range.
 ### How to apply
 
 Compression is **opt-in per router**. The proxy applies *nothing*
-globally to app traffic except the always-on `bg-provider` header — so
+globally to app traffic except the always-on `bg-provider` headers — so
 without one of the patterns below, your app's responses go out
 **uncompressed**.
 
@@ -352,11 +360,11 @@ If you're not sure which chain fits, start here:
 
 | Your app is... | Use | Notes |
 | --- | --- | --- |
-| A standard public-facing HTML / JSON webapp | **`hardened-public@file`** | Default choice. Compression + HSTS + frame-deny + nosniff + referrer + server-scrub + rate-limit. |
+| A standard public-facing HTML / JSON webapp | **`hardened-public@file`** | Default choice. Compression + HSTS + frame-deny + nosniff + referrer + rate-limit. |
 | A REST / JSON API backend (no browser UI) | **`hardened-api@file`** | Looser HSTS, no frame headers, 10 MB body cap, rate-limit. |
 | MinIO / S3 / object storage / large file endpoint | **`s3-streaming@file`** | No buffering, no compression, permissive rate-limit. Streaming-friendly. |
 | Login / OAuth / auth-form endpoint | **`hardened-login@file`** | Strict rate-limit, no compression (BREACH-safe), no-referrer policy. |
-| SSE dashboard / streaming HTTP / video | *None of the chains* — build manually | Avoid `compression`; consider `hsts-mild + nosniff + server-scrub` only. |
+| SSE dashboard / streaming HTTP / video | *None of the chains* — build manually | Avoid `compression`; consider `hsts-mild + nosniff` only. |
 | A WebSocket app | *None of the chains* — build manually | Same as SSE. WebSocket compression is negotiated at the WS layer separately. |
 | An internal-only / admin tool | Define your own at the router | Combine `forward-auth-authelia@file` (or `-authentik`) + IP whitelist labels. |
 
@@ -368,10 +376,10 @@ sacred; they're starting points.
 
 | Chain | Includes | Use when | Avoid when |
 | --- | --- | --- | --- |
-| `hardened-public` | `compression + hsts + frame-deny + nosniff + referrer-strict + server-scrub + rate-limit` | Public webapp, modern browser audience. | App serves SSE / streaming responses, or login forms (BREACH). |
-| `hardened-api` | `hsts-mild + nosniff + server-scrub + rate-limit + body-limit-10mb` | REST / JSON API backend with bounded payload sizes. | API legitimately accepts >10 MB uploads (use `body-limit-100mb` or no limit). |
-| `s3-streaming` | `rate-limit-permissive + server-scrub` | MinIO / S3 / large-file endpoints, multipart uploads, streaming downloads. | Sensitive endpoints that need security headers — chain has none. |
-| `hardened-login` | `hsts + frame-deny + nosniff + referrer-noreferrer + server-scrub + rate-limit-strict` | Login / OAuth / password-reset endpoints. **Combine with IP whitelist** if exposed beyond trusted networks — `rate-limit-strict` (10 req/s) blocks legitimate CGNAT users without it. | Public registration / signup endpoint without IP gating. |
+| `hardened-public` | `compression + hsts + frame-deny + nosniff + referrer-strict + rate-limit` | Public webapp, modern browser audience. | App serves SSE / streaming responses, or login forms (BREACH). |
+| `hardened-api` | `hsts-mild + nosniff + rate-limit + body-limit-10mb` | REST / JSON API backend with bounded payload sizes. | API legitimately accepts >10 MB uploads (use `body-limit-100mb` or no limit). |
+| `s3-streaming` | `rate-limit-permissive` | MinIO / S3 / large-file endpoints, multipart uploads, streaming downloads. | Sensitive endpoints that need security headers — chain has none. |
+| `hardened-login` | `hsts + frame-deny + nosniff + referrer-noreferrer + rate-limit-strict` | Login / OAuth / password-reset endpoints. **Combine with IP whitelist** if exposed beyond trusted networks — `rate-limit-strict` (10 req/s) blocks legitimate CGNAT users without it. | Public registration / signup endpoint without IP gating. |
 
 ## Custom middlewares (file provider)
 

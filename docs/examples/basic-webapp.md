@@ -105,9 +105,18 @@ own [`config/traefik/dynamic/middlewares.yml`](../../config/traefik/dynamic/midd
 
 ## What headers get added by default?
 
-Without **any** middleware referenced at the router level, the only
-header added by the proxy is `X-Solution-Provider: BAUER GROUP`
-(via the always-on `bg-provider` entrypoint middleware).
+Without **any** middleware referenced at the router level, the proxy
+still rewrites two response headers via the always-on `bg-provider`
+entrypoint middleware:
+
+- `Server: BAUER GROUP Edge`
+- `X-Powered-By: BAUER GROUP`
+
+Both are fixed brand values — they advertise the BAUER GROUP-managed
+edge *and* mask the real backend (the constant overwrites the
+upstream's `nginx`/PHP/Express + version, so scanners can't fingerprint
+it). The optional `X-Solution-Provider: BAUER GROUP` header ships
+commented-out in `middlewares.yml` — uncomment it if you want it too.
 
 The example above adds two more (opt-in):
 
@@ -117,7 +126,7 @@ The example above adds two more (opt-in):
 
 For more security, swap `hsts-mild@file,nosniff@file` for
 `hardened-public@file` — that pre-composed chain adds compression +
-HSTS preload + frame-deny + referrer-policy + server-scrub + rate-limit.
+HSTS preload + frame-deny + referrer-policy + rate-limit.
 
 ## Variants
 
@@ -162,7 +171,7 @@ For maximum hardening:
 ```
 
 That chain applies: compression + HSTS preload + frame-deny + nosniff +
-referrer-strict + server-scrub + rate-limit.
+referrer-strict + rate-limit.
 
 **Don't** use this for SSE / streaming endpoints — `compression`
 breaks SSE. For SSE-heavy apps, build your own chain without
@@ -170,17 +179,19 @@ compression.
 
 ## Adding the BAUER GROUP brand identity to responses
 
-Already done. Every response from this app's router carries
-`X-Solution-Provider: BAUER GROUP` automatically (entrypoint-level
-`bg-provider` middleware). Caveat: Traefik's built-in 404 for
-unmatched hosts is emitted before the entrypoint chain and does
-not carry the header.
+Already done. Every response from this app's router carries the fixed
+brand values `Server: BAUER GROUP Edge` and `X-Powered-By: BAUER GROUP`
+automatically (entrypoint-level `bg-provider` middleware) — which also
+masks the real backend from fingerprinting. Caveat: Traefik's built-in
+404 for unmatched hosts is emitted before the entrypoint chain and does
+not carry the headers.
 
 To verify:
 
 ```bash
-curl -I https://app.bauer-group.com | grep -i "x-solution"
-# X-Solution-Provider: BAUER GROUP
+curl -I https://app.bauer-group.com | grep -iE "server|x-powered-by"
+# Server: BAUER GROUP Edge
+# X-Powered-By: BAUER GROUP
 ```
 
 ## Inspecting the route
