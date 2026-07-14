@@ -1,3 +1,9 @@
+## [1.7.0](https://github.com/bauer-group/CS-Traefik/compare/v1.6.0...v1.7.0) (2026-07-14)
+
+### 🚀 Features
+
+* **middlewares:** branded Server/X-Powered-By response headers globally ([50db16f](https://github.com/bauer-group/CS-Traefik/commit/50db16f7909adca0e02378a38127f9e1f36aca09))
+
 ## [1.6.0](https://github.com/bauer-group/CS-Traefik/compare/v1.5.0...v1.6.0) (2026-06-27)
 
 ### 🚀 Features
