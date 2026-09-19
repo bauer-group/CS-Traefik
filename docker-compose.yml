@@ -27,7 +27,7 @@
 #     to the legacy stack so existing app `entrypoints=web-secure` labels keep
 #     working without modification.
 #   - The default cert resolver is `letsencrypt` (TLS-ALPN-01) -- IDENTICAL.
-#   - The public network defaults to ${NETWORK_NAME:-EDGEPROXY} -- IDENTICAL.
+#   - The public network defaults to EDGEPROXY -- IDENTICAL.
 #   - Admin UIs (dashboard) live on the dedicated `monitoring` entrypoint, NOT on
 #     port 443 (matches the legacy localhost:9090 pattern). The host-port
 #     binding for that entrypoint now lives in the monitoring overlay --
@@ -126,7 +126,7 @@ services:
       # rides on 443 (part of THIS base stack), so it works in a pure-proxy
       # install too -- no monitoring profile required.
       traefik.enable: "true"
-      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}"
+      traefik.docker.network: "EDGEPROXY"
 
       # =========================================================================
       # Router priority hierarchy (explicit on EVERY admin router)
@@ -287,89 +287,24 @@ services:
       traefik.http.middlewares.dashboard-redirect.redirectregex.replacement: "/dashboard/"
       traefik.http.middlewares.dashboard-redirect.redirectregex.permanent: "false"
 
-    # CLI args -- override the YAML-hardcoded defaults in /etc/traefik/
-    # traefik.yml. Why CLI args, not static-config or `TRAEFIK_*` env
-    # vars? Empirically:
-    #   * Static YAML does NOT shell-expand ${VAR:-default}.
-    #   * `TRAEFIK_*` env vars do NOT cover map-key fields (entrypoint
-    #     names, resolver names, ...) -- paerser limitation.
-    # CLI args are the only path that gives full coverage AND clean
-    # `${VAR:-default}` semantics. Override priority is CLI > YAML, so
-    # `traefik.yml` defaults stay parseable standalone (handy for
-    # `traefik validate` / CI lints) while every value remains
-    # .env-tunable through the lines below.
+    # NO command: flags here -- deliberately.
     #
-    # ── Logging tunables (apply to whole proxy) ──────────────────────────
-    #   LOG_LEVEL         (default INFO)  ERROR | WARN | INFO | DEBUG | TRACE
-    #   ACCESS_LOG_FORMAT (default json)  json | common
+    # Traefik reads its STATIC configuration from the first source that
+    # yields anything: configuration file, then CLI flags, then TRAEFIK_*
+    # env vars. config/traefik/traefik.yml is mounted below, so the file is
+    # always that first source -- any flag added here is parsed by Docker,
+    # shows up in `docker inspect`, and is then silently ignored by Traefik.
+    # That trap cost a production incident: entrypoint timeouts sat here as
+    # flags while Traefik used its own 60s readTimeout, cutting every upload
+    # slower than a minute (499 'Client Closed Request').
     #
-    # ── Provider tunables ────────────────────────────────────────────────
-    #   NETWORK_NAME      (default EDGEPROXY)  Docker network Traefik
-    #                     watches for service auto-discovery.
-    #
-    # ── ACME tunables (apply to all 3 production resolvers) ──────────────
-    #   LETSENCRYPT_EMAIL (default info@bauer-group.com)
-    #   LETSENCRYPT_CA    (default https://acme-v02.api.letsencrypt.org/
-    #                     directory) -- override to staging URL for testing
-    #                     without burning prod rate limits.
-    #   LETSENCRYPT_DNS_PROVIDER (default cloudflare) -- only consulted
-    #                     when an app uses tls.certresolver=letsencrypt-dns.
-    #
-    # ── respondingTimeouts (per entrypoint) ─────────────────────────────
-    #   WEB_READ_TIMEOUT  (default 0s)   -- no upper bound on request
-    #     body. Required for: large file uploads over slow links (S3
-    #     multipart on mobile), MinIO presigned-URL pushes, video
-    #     uploads, webhooks with long-running server logic.
-    #   WEB_WRITE_TIMEOUT (default 0s)   -- no upper bound on response.
-    #     Required for: SSE / event-stream, streaming downloads, slow
-    #     backends responding to large queries.
-    #   WEB_IDLE_TIMEOUT  (default 300s) -- close keepalive connections
-    #     idle for 5 minutes. Bumped from Traefik default 180s so
-    #     WebSocket apps that don't ping every 3 minutes don't get cut.
-    #     Slowloris-hardening: if your threat model needs a hard cap,
-    #     set WEB_READ_TIMEOUT=600s -- still allows 100MB uploads on
-    #     128 kbit/s mobile but caps single-connection hold time.
-    command:
-      # Logging
-      - --log.level=${LOG_LEVEL:-INFO}
-      - --accesslog.format=${ACCESS_LOG_FORMAT:-json}
-
-      # Docker provider
-      - --providers.docker.network=${NETWORK_NAME:-EDGEPROXY}
-
-      # ACME -- letsencrypt (HTTP-01)
-      - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-info@bauer-group.com}
-      - --certificatesresolvers.letsencrypt.acme.caserver=${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}
-
-      # ACME -- letsencrypt-tls (TLS-ALPN-01)
-      - --certificatesresolvers.letsencrypt-tls.acme.email=${LETSENCRYPT_EMAIL:-info@bauer-group.com}
-      - --certificatesresolvers.letsencrypt-tls.acme.caserver=${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}
-
-      # ACME -- letsencrypt-dns (DNS-01, wildcards / firewalled hosts)
-      - --certificatesresolvers.letsencrypt-dns.acme.email=${LETSENCRYPT_EMAIL:-info@bauer-group.com}
-      - --certificatesresolvers.letsencrypt-dns.acme.caserver=${LETSENCRYPT_CA:-https://acme-v02.api.letsencrypt.org/directory}
-      - --certificatesresolvers.letsencrypt-dns.acme.dnschallenge.provider=${LETSENCRYPT_DNS_PROVIDER:-cloudflare}
-
-      # ACME -- letsencrypt-staging (always staging endpoint, only email overridable)
-      - --certificatesresolvers.letsencrypt-staging.acme.email=${LETSENCRYPT_EMAIL:-info@bauer-group.com}
-
-      # respondingTimeouts on web (HTTP) entrypoint
-      - --entrypoints.web.transport.respondingTimeouts.readTimeout=${WEB_READ_TIMEOUT:-0s}
-      - --entrypoints.web.transport.respondingTimeouts.writeTimeout=${WEB_WRITE_TIMEOUT:-0s}
-      - --entrypoints.web.transport.respondingTimeouts.idleTimeout=${WEB_IDLE_TIMEOUT:-300s}
-
-      # respondingTimeouts on web-secure (HTTPS) entrypoint
-      - --entrypoints.web-secure.transport.respondingTimeouts.readTimeout=${WEB_READ_TIMEOUT:-0s}
-      - --entrypoints.web-secure.transport.respondingTimeouts.writeTimeout=${WEB_WRITE_TIMEOUT:-0s}
-      - --entrypoints.web-secure.transport.respondingTimeouts.idleTimeout=${WEB_IDLE_TIMEOUT:-300s}
-
+    # Everything static therefore lives in config/traefik/traefik.yml:
+    # entrypoints and their respondingTimeouts, providers, ACME resolvers,
+    # logging, metrics, api. Dynamic routing comes from the Docker provider
+    # and config/traefik/dynamic/. Changing a static value means editing
+    # that file and restarting the container -- it is read at startup only.
     environment:
       TZ: ${TIME_ZONE:-Etc/UTC}
-
-      # ---- DNS-01 challenge: provider selector ------------------------------
-      # The `letsencrypt-dns` resolver in traefik.yml uses this to pick the
-      # provider plugin at runtime. Empty = DNS-01 disabled.
-      LETSENCRYPT_DNS_PROVIDER: ${LETSENCRYPT_DNS_PROVIDER:-}
 
       # ---- DNS-01 provider credentials (pass-through) -----------------------
       # All credentials for the providers Traefik supports are wired through
@@ -585,7 +520,7 @@ services:
 # Not reachable from the host's public interfaces.
 networks:
   proxy:
-    name: ${NETWORK_NAME:-EDGEPROXY}
+    name: EDGEPROXY
     driver: bridge
     enable_ipv6: true
     driver_opts:
@@ -597,7 +532,7 @@ networks:
         - subnet: fdff:100:65::/64
           gateway: fdff:100:65::1
   proxy-internal:
-    name: ${NETWORK_NAME:-EDGEPROXY}-INTERNAL
+    name: EDGEPROXY-INTERNAL
     driver: bridge
     internal: false
     enable_ipv6: true

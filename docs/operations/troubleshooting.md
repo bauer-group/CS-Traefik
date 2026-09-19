@@ -83,9 +83,12 @@ Then `sudo ./traefik.sh restart`.
 
 #### "providerName is required"
 
-The DNS-01 resolver is referenced but `LETSENCRYPT_DNS_PROVIDER`
-isn't set in `.env`. Set it (e.g. `LETSENCRYPT_DNS_PROVIDER=cloudflare`)
-plus the provider's credentials, then restart.
+The DNS-01 resolver is referenced but no provider is configured. The
+provider name lives in `config/traefik/traefik.yml` below the
+`# installer:acme-dns-provider` anchor (e.g. `provider: "cloudflare"`);
+its credentials belong in `.env` (e.g. `CF_DNS_API_TOKEN=...`). Setting
+it in `.env` alone has no effect -- Traefik never reads the static
+configuration from there. Restart after changing the file.
 
 ### Symptom: ACME storage file owned by wrong user
 
@@ -482,9 +485,12 @@ in `traefik.yml`, missing env var, ACME storage permissions wrong.
   git diff HEAD~5 HEAD -- docker-compose.yml config/traefik/
   ```
 - **Switch to staging cert resolver** during debugging to avoid
-  burning Let's Encrypt rate limit:
-  ```env
-  LETSENCRYPT_CA=https://acme-staging-v02.api.letsencrypt.org/directory
+  burning Let's Encrypt rate limit -- either point the router at the
+  `letsencrypt-staging` resolver, or set the staging CA in
+  `config/traefik/traefik.yml` below the `# installer:acme-caserver`
+  anchors:
+  ```yaml
+  caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
   ```
 - **File an issue** at https://github.com/bauer-group/CS-Traefik/issues
   with `traefik.sh logs` output and your `.env` (redact secrets).

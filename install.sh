@@ -327,9 +327,9 @@ detect_live_v2_stack() {
     if docker ps --format '{{.Image}}' 2>/dev/null | grep -qE '^traefik:v2'; then
         return 0
     fi
-    # Networks matching the legacy v2 names. Both names cover stacks
-    # that used the default project name (EDGEPROXY) and any custom
-    # NETWORK_NAME the operator might have used.
+    # Networks matching the legacy v2 names. Both names cover stacks that
+    # used the default project name (EDGEPROXY) and any custom network
+    # name from the old v2 .env. v3 always uses EDGEPROXY.
     if docker network ls --format '{{.Name}}' 2>/dev/null \
         | grep -qE '^(EDGEPROXY|EDGEPROXY_INTERNAL|edgeproxy|edgeproxy_internal)$'; then
         return 0
@@ -526,11 +526,6 @@ valid_stack_name() {
     [[ "$1" =~ ^[a-z0-9][a-z0-9_-]*$ ]] && return 0
     echo "  project name must be lowercase [a-z0-9_-], starting alphanumeric (got: $1)" >&2; return 1
 }
-valid_network_name() {
-    _value_is_safe "$1" || return 1
-    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]] && return 0
-    echo "  network name must be [A-Za-z0-9_-], starting alphanumeric (got: $1)" >&2; return 1
-}
 valid_timezone() {
     _value_is_safe "$1" || return 1
     [[ "$1" =~ ^[A-Za-z0-9._+/-]+$ ]] && return 0
@@ -589,6 +584,64 @@ set_env() {
         mv "$ENV_FILE.tmp" "$ENV_FILE"
     fi
     printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+}
+
+# set_traefik_static KEY VALUE -- write VALUE into the STATIC Traefik config
+# (config/traefik/traefik.yml), not into .env.
+#
+# Traefik reads its static configuration from the FIRST source that yields
+# anything: configuration file, then CLI flags, then TRAEFIK_* env vars. The
+# file is always present in this stack, so .env values would never reach
+# Traefik -- writing them there produces settings that look configured and do
+# nothing. (That exact trap cut every upload slower than 60s in production.)
+#
+# Contract: each patchable line in traefik.yml carries an anchor comment on
+# the line above it, e.g.
+#     # installer:acme-email
+#     email: services@bauer-group.com
+# Every line following an anchor of that key is rewritten, so one call keeps
+# all four ACME resolvers in sync. Missing anchor = hard error, never a guess.
+#
+# The value is written as a double-quoted YAML scalar; values containing a
+# double quote, backslash or newline are refused rather than escaped, because
+# silently mangling the proxy's static config is worse than stopping.
+set_traefik_static() {
+    local key="$1" value="$2"
+    local file="${TRAEFIK_STATIC_FILE:-$PROJECT_ROOT/config/traefik/traefik.yml}"
+
+    case "$value" in
+        *'"'*|*\\*|*$'\n'*|*$'\r'*)
+            print_error "Refusing to write an unsafe value for traefik.yml anchor '${key}'."
+            exit 1 ;;
+    esac
+    if [[ ! -f "$file" ]]; then
+        print_error "Static Traefik config not found: $file"
+        exit 1
+    fi
+    if ! grep -q "# installer:${key}$" "$file"; then
+        print_error "Anchor '# installer:${key}' missing in $file -- refusing to guess."
+        exit 1
+    fi
+
+    local tmp
+    tmp="$(mktemp)" || { print_error "mktemp failed"; exit 1; }
+    if ! KEY="$key" VALUE="$value" awk '
+        BEGIN { anchor = "# installer:" ENVIRON["KEY"]; value = ENVIRON["VALUE"]; armed = 0; patched = 0 }
+        {
+            if (armed && match($0, /^[[:space:]]*[A-Za-z0-9_.-]+:[[:space:]]*/)) {
+                printf "%s\"%s\"\n", substr($0, 1, RLENGTH), value
+                patched++; armed = 0; next
+            }
+            if ($0 ~ anchor "$") { armed = 1 }
+            print
+        }
+        END { if (patched == 0) exit 3 }
+    ' "$file" > "$tmp"; then
+        rm -f "$tmp"
+        print_error "Failed to patch anchor '${key}' in ${file}."
+        exit 1
+    fi
+    mv "$tmp" "$file"
 }
 
 # write_env_header -- write the top-of-.env preamble. Stdout, so the
@@ -774,9 +827,8 @@ run_wizard() {
     # ---- Stack identity ----
     print_section "Stack identity"
     set_env_section "Stack identity"
-    local stack_name network_name time_zone data_dir
+    local stack_name time_zone data_dir
     stack_name=$(ask_validated "Compose project name (lowercase)" "edgeproxy" valid_stack_name)
-    network_name=$(ask_validated "Public network name (legacy default: EDGEPROXY)" "EDGEPROXY" valid_network_name)
     time_zone=$(ask_validated "Timezone (IANA name)" "$default_tz" valid_timezone)
     # Default `./data` keeps runtime state under the install dir but in
     # a clearly-separated, gitignored subdirectory. Override to an
@@ -815,8 +867,7 @@ run_wizard() {
     data_dir=$(ask_validated "Data directory (relative to install dir, OR absolute path for separate disk)" "./data" valid_data_dir)
 
     set_env STACK_NAME      "$stack_name"
-    set_env NETWORK_NAME    "$network_name"
-    set_env TIME_ZONE       "$time_zone"
+        set_env TIME_ZONE       "$time_zone"
     set_env DATA_DIRECTORY  "$data_dir"
 
     # ---- Profiles ----
@@ -958,15 +1009,18 @@ EOF
     # Let's Encrypt stopped sending expiry-notification mails in June 2025,
     # so this address is effectively just the ACME account contact -- the
     # default is fine to accept on most installs.
+    # Written into config/traefik/traefik.yml, NOT into .env -- see
+    # set_traefik_static() for why the file is the only source that counts.
     local le_email
-    le_email=$(ask_validated "ACME contact email" "info@bauer-group.com" valid_email)
-    set_env LETSENCRYPT_EMAIL "$le_email"
+    le_email=$(ask_validated "ACME contact email" "services@bauer-group.com" valid_email)
+    set_traefik_static acme-email "$le_email"
 
     if [[ "$(ask_yes_no "Use Let's Encrypt staging (recommended for first run)?" N)" == "yes" ]]; then
-        set_env LETSENCRYPT_CA "https://acme-staging-v02.api.letsencrypt.org/directory"
+        set_traefik_static acme-caserver "https://acme-staging-v02.api.letsencrypt.org/directory"
     else
-        set_env LETSENCRYPT_CA "https://acme-v02.api.letsencrypt.org/directory"
+        set_traefik_static acme-caserver "https://acme-v02.api.letsencrypt.org/directory"
     fi
+    print_info "ACME settings written to config/traefik/traefik.yml"
 
     # ---- Monitoring credentials (if profile selected) ----
     local grafana_pass_display="" grafana_user="admin"
@@ -1273,7 +1327,8 @@ Settings migrated from old .env (v2 KEY -> v3 KEY):
       GRAFANA_ADMIN_PASSWORD -> kept verbatim
       API_PORT               -> MONITORING_PORT       (only if non-default;
                                                        v3 default is 9090)
-      LETSENCRYPT_EMAIL      -> kept verbatim
+      LETSENCRYPT_EMAIL      -> config/traefik/traefik.yml
+                                (acme-email anchor, not .env)
       API_HOST               -> SPLIT:
                                    IPv4 part   -> MONITORING_BIND     (0.0.0.0
                                                                        to preserve
@@ -1503,9 +1558,8 @@ generate_env_with_migration() {
 
     # ---- Let's Encrypt ----------------------------------------------------
     if [[ -n "${V2_OLD_ENV[LETSENCRYPT_EMAIL]:-}" && "${V2_OLD_ENV[LETSENCRYPT_EMAIL]}" != "info@bauer-group.com" ]]; then
-        set_env_section "Let's Encrypt"
-        set_env LETSENCRYPT_EMAIL "${V2_OLD_ENV[LETSENCRYPT_EMAIL]}"
-        print_info "LETSENCRYPT_EMAIL migrated: ${V2_OLD_ENV[LETSENCRYPT_EMAIL]}"
+        set_traefik_static acme-email "${V2_OLD_ENV[LETSENCRYPT_EMAIL]}"
+        print_info "ACME contact migrated into config/traefik/traefik.yml: ${V2_OLD_ENV[LETSENCRYPT_EMAIL]}"
     fi
 
     # ---- Monitoring credentials ------------------------------------------

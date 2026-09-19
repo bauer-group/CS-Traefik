@@ -112,7 +112,7 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
       traefik.enable: "true"
-      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
+      traefik.docker.network: "EDGEPROXY-INTERNAL"
 
       # Localhost router on the monitoring entrypoint. Priority 200 matches the
       # dashboard-local catch-all in docker-compose.yml -- well above any
@@ -285,7 +285,7 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
       traefik.enable: "true"
-      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
+      traefik.docker.network: "EDGEPROXY-INTERNAL"
 
       # Edge-only auth model: BasicAuth + IP whitelist at the Traefik
       # layer, no second login inside Grafana (login form hidden).
@@ -500,7 +500,7 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
       traefik.enable: "true"
-      traefik.docker.network: "${NETWORK_NAME:-EDGEPROXY}-INTERNAL"
+      traefik.docker.network: "EDGEPROXY-INTERNAL"
 
       # Localhost router on the monitoring entrypoint. Priority + middleware
       # rationale identical to prometheus-local above.

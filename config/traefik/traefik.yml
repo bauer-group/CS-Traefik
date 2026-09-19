@@ -166,11 +166,19 @@ entryPoints:
       # run AFTER the entrypoint middlewares.
       middlewares:
         - bg-provider@file
-    # respondingTimeouts (readTimeout / writeTimeout / idleTimeout) are
-    # set via CLI args in docker-compose.yml `command:` -- static-config
-    # YAML does NOT expand `${VAR:-default}` shell syntax, so they
-    # cannot live here if they need to be .env-tunable. See compose
-    # `command:` section for the actual values + full rationale.
+    # respondingTimeouts -- bounds a whole request INCLUDING its body.
+    # MUST live here: Traefik reads static config from the FIRST source
+    # that yields anything (file -> CLI flags -> env) and stops there.
+    # Because this file exists, `command:` flags in docker-compose.yml are
+    # never applied, and Traefik falls back to its own 60s readTimeout --
+    # which cuts every upload slower than 60s mid-body (S3 multipart
+    # backups showed up as 499 'Client Closed Request' at exactly 60.001s).
+    # 0s = unbounded body time; idleTimeout still reaps dead connections.
+    transport:
+      respondingTimeouts:
+        readTimeout: "0s"
+        writeTimeout: "0s"
+        idleTimeout: "300s"
 
   web-secure:
     address: ":443/tcp"
@@ -183,7 +191,19 @@ entryPoints:
         certResolver: letsencrypt
     http3:
       advertisedPort: 443
-    # respondingTimeouts -- see `web` block + docker-compose.yml command:.
+    # respondingTimeouts -- bounds a whole request INCLUDING its body.
+    # MUST live here: Traefik reads static config from the FIRST source
+    # that yields anything (file -> CLI flags -> env) and stops there.
+    # Because this file exists, `command:` flags in docker-compose.yml are
+    # never applied, and Traefik falls back to its own 60s readTimeout --
+    # which cuts every upload slower than 60s mid-body (S3 multipart
+    # backups showed up as 499 'Client Closed Request' at exactly 60.001s).
+    # 0s = unbounded body time; idleTimeout still reaps dead connections.
+    transport:
+      respondingTimeouts:
+        readTimeout: "0s"
+        writeTimeout: "0s"
+        idleTimeout: "300s"
 
   monitoring:
     address: ":9090/tcp"
@@ -254,7 +274,9 @@ certificatesResolvers:
   # HTTP-01 from now on.
   letsencrypt:
     acme:
-      email: info@bauer-group.com
+      # installer:acme-email
+      email: services@bauer-group.com
+      # installer:acme-caserver
       caServer: https://acme-v02.api.letsencrypt.org/directory
       storage: /etc/traefik/certs/letsencrypt/letsencrypt.json
       keyType: EC256
@@ -264,17 +286,20 @@ certificatesResolvers:
   # ---- 2. TLS-ALPN-01 (fallback) ---------------------------------------------
   letsencrypt-tls:
     acme:
-      email: info@bauer-group.com
+      # installer:acme-email
+      email: services@bauer-group.com
+      # installer:acme-caserver
       caServer: https://acme-v02.api.letsencrypt.org/directory
       storage: /etc/traefik/certs/letsencrypt/letsencrypt-tls.json
       keyType: EC256
       tlsChallenge: {}
 
   # ---- 3. DNS-01 (wildcards / firewalled hosts) ------------------------------
-  # ACTIVE but inert until LETSENCRYPT_DNS_PROVIDER is set in .env. The
-  # provider plugin is selected by the env var; credentials for ALL common
-  # providers are wired through docker-compose.yml so no Compose edits are
-  # needed when switching providers.
+  # ACTIVE as soon as an app router references it. The provider name is set
+  # below (installer anchor `acme-dns-provider`); credentials for ALL common
+  # providers are passed through from .env by docker-compose.yml, so
+  # switching providers means changing the name here plus that provider's
+  # credentials -- no Compose edit.
   #
   # Usage: in your app router add:
   #   traefik.http.routers.foo.tls.certresolver=letsencrypt-dns
@@ -284,16 +309,19 @@ certificatesResolvers:
   # Reference: https://doc.traefik.io/traefik/https/acme/#providers
   letsencrypt-dns:
     acme:
-      email: info@bauer-group.com
+      # installer:acme-email
+      email: services@bauer-group.com
+      # installer:acme-caserver
       caServer: https://acme-v02.api.letsencrypt.org/directory
       storage: /etc/traefik/certs/letsencrypt/letsencrypt-dns.json
       keyType: EC256
       dnsChallenge:
-        # Default provider hardcoded as `cloudflare` -- the most common
-        # provider in BG environments. Override via .env
-        # `LETSENCRYPT_DNS_PROVIDER=<other>` (compose CLI arg). The
-        # resolver is only ACTIVE when an app references it via
+        # Provider defaults to `cloudflare`, the most common one in BG
+        # environments. Change it HERE (install.sh writes the same line
+        # via the anchor below) and put that provider's credentials in
+        # .env. The resolver is only ACTIVE when an app references it via
         # `tls.certresolver=letsencrypt-dns` -- otherwise it sits idle.
+        # installer:acme-dns-provider
         provider: cloudflare
         # Recursive DNS resolvers used to verify that the _acme-challenge
         # TXT record has propagated. Cloudflare + Google = fast + neutral.
@@ -315,7 +343,8 @@ certificatesResolvers:
   # (5 duplicate certs/week, 50 certs/account/week).
   letsencrypt-staging:
     acme:
-      email: info@bauer-group.com
+      # installer:acme-email
+      email: services@bauer-group.com
       caServer: https://acme-staging-v02.api.letsencrypt.org/directory
       storage: /etc/traefik/certs/letsencrypt/letsencrypt-staging.json
       keyType: EC256

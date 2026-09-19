@@ -1,12 +1,31 @@
 # Configuration Reference
 
-Every variable Compose reads, grouped by concern, with default value,
-semantics, and the side-effects of changing it.
+Configuration lives in **two** places, and which one applies is not a
+matter of taste:
+
+- **`.env`** — everything Compose itself reads: image tags, ports, paths,
+  resource limits, credentials passed to containers, profile toggles.
+- **`config/traefik/traefik.yml`** — Traefik's *static* configuration:
+  entrypoints and their timeouts, providers, ACME resolvers, logging,
+  metrics, api. Traefik reads its static configuration from the first
+  source that yields anything (file, then CLI flags, then `TRAEFIK_*` env
+  vars) and stops there. Because this file always exists, nothing in `.env`
+  and no `command:` flag can influence it — such values are parsed by
+  Docker, show up in `docker inspect`, and are then ignored.
+
+Static values are therefore edited in the file and take effect on the next
+container start. `./install.sh` writes the values it asks for (ACME contact,
+staging vs. production CA) straight into that file via anchor comments; see
+`set_traefik_static()` in the installer.
+
+This page lists every variable Compose reads, grouped by concern, with
+default value, semantics, and the side-effects of changing it, followed by
+the static Traefik settings.
 
 The shipped [`.env.example`](../.env.example) uses a dual layout:
 
 - **Active (uncommented)** — values without a sensible default
-  (`MONITORING_USERS`), stability pins (`STACK_NAME`, `NETWORK_NAME`,
+  (`MONITORING_USERS`), stability pins (`STACK_NAME`,
   `DATA_DIRECTORY`, `COMPOSE_PROFILES`), and security-baseline
   overrides (`MONITORING_WHITELIST` set to localhost-only). These ship
   enabled and apply to every deployment.
@@ -25,9 +44,15 @@ starting `.env`.
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `STACK_NAME` | `edgeproxy` | Compose project name. Prefixes container/volume names. Change only if you run multiple Traefik stacks on the same host. |
-| `NETWORK_NAME` | `EDGEPROXY` | Public Docker network name. **Drop-in compat with the legacy v2 stack** — change at your own risk; existing app stacks reference this. |
 | `TIME_ZONE` | `Etc/UTC` | IANA timezone, propagated to every container's `TZ` env var. Affects log timestamps and cron schedules. |
 | `DATA_DIRECTORY` | `./data` (relative to compose project root) | Host path for runtime state (ACME, Grafana DB, Prometheus TSDB, Loki chunks, logs, backups). With the default, state lives at `<install-dir>/data/...` -- gitignored, never pollutes the cloned repo. Override to an absolute path (e.g. `/mnt/fastdisk/edgeproxy`) to put state on a separate disk for log-heavy workloads. Do NOT set this to the install dir itself. |
+
+The public Docker network is named **`EDGEPROXY`** and is hard-wired in
+the compose files and in `config/traefik/traefik.yml`
+(`providers.docker.network`). It is not a variable: every app stack
+references that exact name in its `traefik.docker.network` label, so
+renaming it would have to happen in all three places plus every attached
+stack, in lockstep.
 
 ## Compose profiles (feature toggles)
 
@@ -50,11 +75,31 @@ Values:
 | `TRAEFIK_IMAGE_TAG` | `v3` | Floats on the v3 major (minor + patch auto, no v4 jump). Pin an exact minor (e.g. `v3.6`) for change-controlled environments -- a pinned minor freezes the digest, so Watchtower (if active) stops updating it. |
 | `HTTP_PORT` | `80` | External HTTP port. Change if Traefik must coexist with another listener on 80. |
 | `HTTPS_PORT` | `443` | External HTTPS port. Used for both TCP (HTTP/1.1, HTTP/2) and UDP (HTTP/3 / QUIC). |
-| `LOG_LEVEL` | `INFO` | One of `ERROR / WARN / INFO / DEBUG / TRACE`. DEBUG logs every routing decision -- use only for active debugging. |
-| `ACCESS_LOG_FORMAT` | `json` | `common` (Apache combined) or `json`. JSON works with Loki / Promtail label parsing. |
-| `WEB_READ_TIMEOUT` | `0s` | Max time to read a request body. `0s` = unlimited (required for S3/MinIO multipart, large uploads). Bump to e.g. `600s` for slowloris hardening. |
-| `WEB_WRITE_TIMEOUT` | `0s` | Max time to write a response. `0s` = unlimited (required for SSE / streaming). |
-| `WEB_IDLE_TIMEOUT` | `300s` | Idle keepalive timeout. 5 min covers most WebSocket apps without aggressive heartbeats. Bump to `600s` for IoT / MQTT-over-WS; lower to `60s` for memory-tight setups. |
+
+Log level, access-log format and the entrypoint timeouts are **not**
+variables — they are static Traefik settings, see the next section.
+
+## Static Traefik configuration (`config/traefik/traefik.yml`)
+
+Edited in the file, applied on the next container start
+(`docker compose up -d traefik`; a plain `restart` re-reads the file too,
+but not a changed `command:`). None of these can be set from `.env`.
+
+| Setting | Value here | Notes |
+| --- | --- | --- |
+| `log.level` | `INFO` | `ERROR / WARN / INFO / DEBUG / TRACE`. DEBUG logs every routing decision -- active debugging only. |
+| `accessLog.format` | `json` | `json` or `common`. JSON is what the Loki/Promtail label parsing expects. |
+| `entryPoints.web{,-secure}.transport.respondingTimeouts.readTimeout` | `0s` | Bounds the WHOLE request including its body. Traefik's own default is `60s`, which cuts every upload slower than a minute mid-body and logs it as 499 "Client Closed Request" -- S3 multipart backups fail exactly that way. `0s` = unbounded. |
+| `…respondingTimeouts.writeTimeout` | `0s` | Bounds the response. `0s` is required for SSE / event-stream and streaming downloads. |
+| `…respondingTimeouts.idleTimeout` | `300s` | Idle keepalive reaping. Five minutes covers WebSocket apps without aggressive heartbeats; raise for IoT / MQTT-over-WS. |
+| `providers.docker.network` | `EDGEPROXY` | Must match the network name in the compose files. |
+| `certificatesResolvers.*.acme.email` | `services@bauer-group.com` | ACME account contact, all four resolvers. Installer anchor `# installer:acme-email`. |
+| `certificatesResolvers.*.acme.caServer` | production endpoint | Staging/production switch for the three production resolvers; `letsencrypt-staging` is pinned to staging and carries no anchor. Installer anchor `# installer:acme-caserver`. |
+| `certificatesResolvers.letsencrypt-dns.acme.dnsChallenge.provider` | `cloudflare` | DNS-01 provider name. Installer anchor `# installer:acme-dns-provider`. Credentials stay in `.env`. |
+
+The anchor comments are a contract: `install.sh` rewrites the line directly
+below an anchor and aborts if the anchor is missing rather than guessing.
+Keep them when editing.
 
 ## Admin access (`monitoring` entrypoint)
 
@@ -79,8 +124,13 @@ See [`admin-access.md`](admin-access.md) for the three usage modes
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `LETSENCRYPT_EMAIL` | `info@bauer-group.com` | ACME registration + expiry notifications. **Required**. Override per deployment in `.env`. |
-| `LETSENCRYPT_CA` | `https://acme-v02.api.letsencrypt.org/directory` | Production endpoint. Switch to `https://acme-staging-v02.api.letsencrypt.org/directory` while testing to avoid the production rate limit (5 duplicate certs/week). |
+The ACME contact address and the CA endpoint are static Traefik settings,
+not variables — they live in `config/traefik/traefik.yml` under
+`certificatesResolvers.<name>.acme` and are written there by the installer
+(anchors `acme-email` / `acme-caserver`). Switch to the staging CA while
+testing to avoid the production rate limit of five duplicate certs per week,
+or point a router at the `letsencrypt-staging` resolver, which is pinned to
+staging permanently.
 
 Four resolvers are pre-wired in [`config/traefik/traefik.yml`](../config/traefik/traefik.yml):
 
@@ -88,20 +138,23 @@ Four resolvers are pre-wired in [`config/traefik/traefik.yml`](../config/traefik
 | --- | --- | --- |
 | `letsencrypt` | HTTP-01 (port 80) | DEFAULT. RFC 8555 MUST-implement. |
 | `letsencrypt-tls` | TLS-ALPN-01 (port 443) | Fallback when port 80 is fronted. |
-| `letsencrypt-dns` | DNS-01 | Wildcards / firewalled hosts. Provider via `LETSENCRYPT_DNS_PROVIDER`. |
+| `letsencrypt-dns` | DNS-01 | Wildcards / firewalled hosts. Provider set in `traefik.yml`, credentials in `.env`. |
 | `letsencrypt-staging` | HTTP-01 (staging) | Initial roll-out testing. |
 
 Apps select per-router via `traefik.http.routers.X.tls.certresolver=`.
 
 ## DNS-01 challenge (wildcard certificates)
 
-`LETSENCRYPT_DNS_PROVIDER` is the provider key. Empty = DNS-01
-disabled. See [`tls-and-certificates.md`](tls-and-certificates.md) for
-the full provider list and required env vars per provider.
+The provider name is set in `config/traefik/traefik.yml`
+(`certificatesResolvers.letsencrypt-dns.acme.dnsChallenge.provider`,
+installer anchor `acme-dns-provider`); its credentials go into `.env`,
+from where Compose passes them to the container. Switching providers means
+changing that one line plus the credentials — no Compose edit. See
+[`tls-and-certificates.md`](tls-and-certificates.md) for the full list.
 
 Most-used providers in BG context:
 
-| Provider | `LETSENCRYPT_DNS_PROVIDER=` | Required env vars |
+| Provider | provider name in `traefik.yml` | Required env vars |
 | --- | --- | --- |
 | Cloudflare | `cloudflare` | `CF_DNS_API_TOKEN` |
 | Hetzner | `hetzner` | `HETZNER_API_KEY` |
@@ -134,8 +187,11 @@ passes them through automatically).
 | `GRAFANA_PLUGINS` | *(empty)* | Comma-separated list of Grafana plugins installed on first start. |
 | `PROMETHEUS_RETENTION_TIME` | `30d` | Whichever (time or size) hits first wins. |
 | `PROMETHEUS_RETENTION_SIZE` | `32GB` | |
-| `PROMETHEUS_SCRAPE_INTERVAL` | `15s` | 5s for fine-grained latency graphs; 30s for low-overhead. |
 | `LOKI_RETENTION_PERIOD` | `168h` | 7 days. Increase for compliance / long-tail debugging. |
+
+The Prometheus scrape interval is not a variable either: it lives in
+`config/prometheus/prometheus.yml` (`global.scrape_interval`, currently
+`5s`; `scrape_timeout` must stay below it).
 
 ## Auto-update profile (only active when `auto-update` is in `COMPOSE_PROFILES`)
 

@@ -167,16 +167,18 @@ When Traefik v4 ships:
 2. A v4 jump never happens by itself — the default `TRAEFIK_IMAGE_TAG=v3`
    (and any exact-minor pin) resolves only within v3, so Watchtower
    can't pull v4. Moving to v4 is always the deliberate step 4 below.
-3. Switch to staging cert resolver for testing:
-   ```env
-   LETSENCRYPT_CA=https://acme-staging-v02.api.letsencrypt.org/directory
+3. Switch to staging cert resolver for testing -- in
+   `config/traefik/traefik.yml`, below each `# installer:acme-caserver`
+   anchor:
+   ```yaml
+   caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
    ```
 4. Update the pin: `TRAEFIK_IMAGE_TAG=v4.0`.
 5. `sudo ./traefik.sh update`.
 6. Verify dashboard, then a sample app, then all apps.
-7. Switch back to production CA:
-   ```env
-   LETSENCRYPT_CA=https://acme-v02.api.letsencrypt.org/directory
+7. Switch back to production CA in the same file:
+   ```yaml
+   caServer: "https://acme-v02.api.letsencrypt.org/directory"
    ```
    and `sudo ./traefik.sh restart`.
 

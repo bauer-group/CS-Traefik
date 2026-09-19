@@ -209,10 +209,16 @@ labels:
   - "traefik.http.routers.${STACK_NAME}-s3.tls.domains[0].sans=*.s3.bauer-group.com"
 ```
 
-Plus DNS-01 wildcard cert config in `.env`:
+Plus DNS-01 wildcard cert config. Provider name in
+`config/traefik/traefik.yml` (anchor `# installer:acme-dns-provider`):
+
+```yaml
+provider: "cloudflare"
+```
+
+and its credentials in `.env`:
 
 ```env
-LETSENCRYPT_DNS_PROVIDER=cloudflare
 CF_DNS_API_TOKEN=...
 ```
 

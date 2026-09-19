@@ -10,8 +10,11 @@ IPv4 + IPv6 dual-stack reachability.
 | Public | `EDGEPROXY` | `bridge` (IPv4 + IPv6) | host + Docker network | App stacks attach here as `external: true` to be discovered by Traefik. |
 | Internal | `EDGEPROXY-INTERNAL` | `bridge` (IPv4 + IPv6) | Docker network only | Traefik ↔ monitoring stack chatter. App stacks should NOT attach here. |
 
-Override the names via `NETWORK_NAME=...` in `.env`. The internal
-network is always the public name + `-INTERNAL` suffix.
+The names are fixed. The public network is `EDGEPROXY`, hard-wired in
+the compose files and in `config/traefik/traefik.yml`
+(`providers.docker.network`) -- every app stack references that exact
+name in its `traefik.docker.network` label. The internal network is
+always the public name + `-INTERNAL` suffix.
 
 ### Subnets
 
@@ -66,9 +69,9 @@ Notes:
 
 - `external: true` means Compose won't try to create the network — it
   expects CS-Traefik to have created it. Start CS-Traefik first.
-- The `name:` field MUST match `NETWORK_NAME` from CS-Traefik's `.env`.
-  The `${PROXY_NETWORK:-EDGEPROXY}` pattern lets each app's `.env`
-  override per-deployment without touching the compose file.
+- The `name:` field MUST be `EDGEPROXY` -- the network CS-Traefik
+  creates. An app may keep a `${PROXY_NETWORK:-EDGEPROXY}` pattern so a
+  test deployment can point elsewhere, but the default has to match.
 - The `traefik.docker.network=EDGEPROXY` label tells Traefik which IP
   to forward to when the container has multiple network attachments.
   This is required when an app is on multiple networks (e.g. its own

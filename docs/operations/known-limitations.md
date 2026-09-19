@@ -114,7 +114,7 @@ not exercise:
 
 | Area | Reason for skipping | How to verify before production |
 | --- | --- | --- |
-| Real Let's Encrypt ACME issuance | Test environment has no public DNS / no real hostname. Default `LETSENCRYPT_CA` was switched to staging during tests. | Deploy to a staging server with a real hostname; switch `LETSENCRYPT_CA` to production; verify cert appears in `/etc/traefik/certs/letsencrypt/letsencrypt.json` and TLS handshake serves it. |
+| Real Let's Encrypt ACME issuance | Test environment has no public DNS / no real hostname. The `caServer` in `config/traefik/traefik.yml` was switched to staging during tests. | Deploy to a staging server with a real hostname; switch `caServer` back to production (anchor `# installer:acme-caserver`); verify cert appears in `/etc/traefik/certs/letsencrypt/letsencrypt.json` and TLS handshake serves it. |
 | HTTP/3 (QUIC over UDP/443) | The entrypoint is configured but Docker Desktop's UDP forwarding has different behaviour from Linux. Browser-level QUIC negotiation needs a real client. | `curl --http3-only https://your-host/...` (curl built with HTTP/3 support) or browser DevTools showing `h3` protocol. |
 | IPv6 routing path end-to-end | Docker Desktop's IPv6 forwarding is functional but quirky; full v6 testing belongs on a dual-stack Linux host. | `curl -6 https://your-host/...` from an IPv6-capable network; verify access logs show v6 source. |
 | Alert firing through Alertmanager | Rules are loaded (12 rules across 3 groups) but no rule was forced into a firing state during tests. | Trigger a known-firing condition (e.g. stop a target Prometheus is scraping; the `TraefikDown` alert fires within 1-2 evaluation cycles). Verify Alertmanager `/api/v2/alerts` shows the alert. |

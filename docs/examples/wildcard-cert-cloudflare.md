@@ -38,11 +38,21 @@ account access).
 
 ## Configure CS-Traefik
 
-In `/opt/edgeproxy/.env`:
+The ACME contact and the DNS provider are static Traefik settings, in
+`/opt/edgeproxy/config/traefik/traefik.yml` (both carry installer
+anchors, so `./install.sh` can write them too):
+
+```yaml
+# installer:acme-email
+email: "admin@bauer-group.com"
+...
+# installer:acme-dns-provider
+provider: "cloudflare"
+```
+
+The provider CREDENTIALS are passed through from `/opt/edgeproxy/.env`:
 
 ```env
-LETSENCRYPT_EMAIL=admin@bauer-group.com
-LETSENCRYPT_DNS_PROVIDER=cloudflare
 CF_DNS_API_TOKEN=...your-token-from-Cloudflare...
 ```
 
@@ -159,8 +169,10 @@ echo | openssl s_client -showcerts -servername documents.s3.bauer-group.com -con
 error: providerName is required
 ```
 
-`LETSENCRYPT_DNS_PROVIDER` isn't set, or didn't propagate to the
-container. Check:
+No DNS provider is configured in `config/traefik/traefik.yml` (anchor
+`# installer:acme-dns-provider`), or the credentials didn't reach the
+container. Setting a provider in `.env` has no effect -- Traefik reads
+its static configuration from the file only. Check:
 
 ```bash
 docker exec edgeproxy-traefik env | grep -E "LETSENCRYPT|CF_"
@@ -188,7 +200,7 @@ Bump in [`config/traefik/traefik.yml`](../../config/traefik/traefik.yml):
 letsencrypt-dns:
   acme:
     dnsChallenge:
-      provider: "${LETSENCRYPT_DNS_PROVIDER:-cloudflare}"
+      provider: "cloudflare"          # below the installer anchor
       resolvers:
         - "1.1.1.1:53"
         - "8.8.8.8:53"
@@ -209,14 +221,15 @@ to staging:
 
 But there's no `letsencrypt-staging-dns` for DNS-01. To use staging
 for a DNS-01 cert during testing, override the CA endpoint via
-`.env`:
+`config/traefik/traefik.yml`, below each `# installer:acme-caserver`
+anchor:
 
-```env
-LETSENCRYPT_CA=https://acme-staging-v02.api.letsencrypt.org/directory
+```yaml
+caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
 ```
 
-(This affects ALL resolvers temporarily. Switch back to production
-after testing.)
+(This affects the three production resolvers. Switch back afterwards,
+and restart -- static configuration is read at startup only.)
 
 ## Cleanup if you stop using wildcards
 

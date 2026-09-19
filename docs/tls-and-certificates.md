@@ -19,7 +19,7 @@ Four resolvers are pre-wired:
 | --- | --- | --- |
 | `letsencrypt` | HTTP-01 (port 80) | DEFAULT. RFC 8555 MUST-implement. Universal. |
 | `letsencrypt-tls` | TLS-ALPN-01 (port 443) | Fallback when port 80 is fronted. |
-| `letsencrypt-dns` | DNS-01 | Wildcards / firewalled hosts. Provider via `LETSENCRYPT_DNS_PROVIDER` in `.env`. |
+| `letsencrypt-dns` | DNS-01 | Wildcards / firewalled hosts. Provider set in `traefik.yml`, credentials in `.env`. |
 | `letsencrypt-staging` | HTTP-01 (staging) | Initial roll-out. No rate-limit pain. |
 
 Plus manual / BYO certificates via
@@ -46,7 +46,8 @@ aren't reachable from the public internet.
 
 ### Prerequisites
 
-- `LETSENCRYPT_EMAIL` set in `.env` (registration + expiry mail).
+- ACME contact address set in `config/traefik/traefik.yml`
+  (`certificatesResolvers.*.acme.email`) -- `./install.sh` writes it there.
 - DNS A/AAAA records for your hostnames pointing at the Traefik host.
 - Port 80 reachable from the public internet (HTTP-01) **or** port 443
   reachable (TLS-ALPN-01) **or** DNS-provider API credentials (DNS-01).
@@ -69,11 +70,15 @@ Switch a router to staging via labels:
 - "traefik.http.routers.myapp.tls.certresolver=letsencrypt-staging"
 ```
 
-Or globally via env (affects all routers using `letsencrypt`):
+Or globally, by pointing the three production resolvers at the staging
+CA in `config/traefik/traefik.yml` -- the line below each
+`# installer:acme-caserver` anchor (`./install.sh` sets it the same way):
 
-```env
-LETSENCRYPT_CA=https://acme-staging-v02.api.letsencrypt.org/directory
+```yaml
+caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
 ```
+
+Restart afterwards; static configuration is read at startup only.
 
 When everything works, swap back to production. Old staging certs are
 discarded automatically; production certs are issued on first request.
@@ -94,10 +99,16 @@ For DNS-01 (wildcards), see [Wildcards](#wildcards-dns-01) below.
 
 Wildcard certs (`*.bauer-group.com`) require DNS-01. The
 `letsencrypt-dns` resolver is **active and parameterised** — pick a
-provider in `.env`:
+provider. The provider NAME goes into `config/traefik/traefik.yml`
+(below the `# installer:acme-dns-provider` anchor):
+
+```yaml
+provider: "cloudflare"
+```
+
+Its CREDENTIALS go into `.env`, from where Compose passes them through:
 
 ```env
-LETSENCRYPT_DNS_PROVIDER=cloudflare
 CF_DNS_API_TOKEN=...
 ```
 

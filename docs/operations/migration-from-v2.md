@@ -114,8 +114,10 @@ Lowest-risk migration:
    ```bash
    curl -fsSL https://raw.githubusercontent.com/bauer-group/CS-Traefik/main/install.sh | sudo bash
    ```
-3. Configure `.env` to match your existing `LETSENCRYPT_EMAIL`,
-   `NETWORK_NAME` (keep `EDGEPROXY`), etc.
+3. Configure `.env` for this host. The ACME contact address is not an
+   env variable in v3 -- it lives in `config/traefik/traefik.yml`
+   (anchor `# installer:acme-email`), and the installer writes it there.
+   The public network is always `EDGEPROXY`.
 4. Bring CS-Traefik up: `sudo /opt/edgeproxy/traefik.sh start`.
 5. Move app stacks one at a time:
    - For each app: stop on the old host, copy the compose to the
@@ -202,7 +204,7 @@ What `upgrade` does, in order:
    | `MONITORING_WHITELIST` | `MONITORING_WHITELIST` | Verbatim (preserves your LAN CIDRs). |
    | `GRAFANA_ADMIN_PASSWORD` | same | Verbatim. |
    | `MONITORING_PORT` | same | Migrated only if non-default (v3 default is 9090). |
-   | `LETSENCRYPT_EMAIL` | same | Migrated only if non-default. |
+   | `LETSENCRYPT_EMAIL` | `certificatesResolvers.*.acme.email` in `traefik.yml` | Migrated only if non-default -- written into the static config, not into `.env`. |
    | `MONITORING_HOST` | split: IPs -> `MONITORING_BIND`/`MONITORING_BIND_V6`=0.0.0.0/:: | v2's HostRegexp pattern is split: IP parts trigger all-interface bind (preserves v2 0.0.0.0 behaviour AND loopback access); hostname is logged but NOT migrated to v3 `MONITORING_HOST` (v3 MONITORING_HOST is for mode-3 public-FQDN-with-LE only -- internal hostnames don't qualify). |
    | (none) | `COMPOSE_PROFILES=monitoring` | Upgrade default. |
 
@@ -258,8 +260,9 @@ Before doing any actual migration, verify against a sample app:
 # 1. Bring CS-Traefik up alongside the legacy stack on different ports
 HTTP_PORT=8081 HTTPS_PORT=8443 sudo /opt/edgeproxy/traefik.sh start
 
-# 2. Attach an app stack to the new EDGEPROXY-test network (rename in .env)
-NETWORK_NAME=EDGEPROXY-test docker compose up -d myapp
+# 2. Attach an app stack to the test network (the app's own compose
+#    references it; CS-Traefik itself always uses EDGEPROXY)
+PROXY_NETWORK=EDGEPROXY-test docker compose up -d myapp
 
 # 3. Test
 curl --resolve app.bauer-group.com:8443:127.0.0.1 https://app.bauer-group.com:8443/health
