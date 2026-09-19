@@ -4,6 +4,12 @@ All notable changes to CS-Traefik are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2](https://github.com/bauer-group/CS-Traefik/compare/v1.7.1...v1.7.2) (2026-09-19)
+
+### 🐛 Bug Fixes
+
+* **traefik:** make static configuration effective again ([eadf42b](https://github.com/bauer-group/CS-Traefik/commit/eadf42b0324802ef212b40a005d29fda6d25b00e))
+
 ## [1.7.1](https://github.com/bauer-group/CS-Traefik/compare/v1.7.0...v1.7.1) (2026-09-19)
 
 ### 🐛 Bug Fixes
