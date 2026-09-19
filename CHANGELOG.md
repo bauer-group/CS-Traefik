@@ -1,3 +1,19 @@
+# Changelog
+
+All notable changes to CS-Traefik are documented here.
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.7.1](https://github.com/bauer-group/CS-Traefik/compare/v1.7.0...v1.7.1) (2026-09-19)
+
+### 🐛 Bug Fixes
+
+* **ci:** granted scopes the called modules need ([fdf86a6](https://github.com/bauer-group/CS-Traefik/commit/fdf86a628b63a81f95a248a4ca80d05fcbaeaf54))
+
+### 🔧 Maintenance
+
+* **ci:** removed redundant teams notification ([cf67573](https://github.com/bauer-group/CS-Traefik/commit/cf67573faee36bc578c37b18ff6c727e6a7709e8))
+
 ## [1.7.0](https://github.com/bauer-group/CS-Traefik/compare/v1.6.0...v1.7.0) (2026-07-14)
 
 ### 🚀 Features
